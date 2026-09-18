@@ -1,0 +1,14 @@
+**/node_modules/
+**/data/
+**/.env
+**/.env.*
+!**/.env.example
+**/master.key
+**/GeoIP.conf
+*.sqlite*
+*.db
+*.log
+*.zip
+*.tar.gz
+.tools/
+.DS_Store

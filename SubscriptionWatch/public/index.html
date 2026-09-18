@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>订阅观察 · 风控工作台</title>
+    <link rel="stylesheet" href="/style.css?v=3.7.0" />
+  </head>
+  <body>
+    <div id="app" hidden>
+      <aside>
+        <div class="brand">订阅观察</div>
+        <small>独立采集 · 风险评估</small>
+        <nav>
+          <button data-tab="history" class="active">访问记录</button
+          ><button data-tab="risk">风险用户</button
+          ><button data-tab="riskHistory">评估历史</button
+          ><button data-tab="whitelist">用户白名单</button
+          ><button data-tab="panelSettings">面板设置</button
+          ><button data-tab="telegram">TG 机器人</button
+          ><button data-tab="account">账号安全</button
+          ><button data-tab="site" id="siteNav">系统设置</button>
+        </nav>
+        <div class="aside-bottom">
+          <span id="identity"></span><br /><button id="logout">退出登录</button>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <div class="eyebrow">SUBSCRIPTION WATCH</div>
+            <h1 id="pageTitle">访问记录</h1>
+          </div>
+          <div class="toolbar">
+            <select id="panelSelect" aria-label="当前面板"></select
+            ><button id="addPanel">添加面板</button
+            ><button id="refresh">刷新</button>
+          </div>
+        </header>
+        <div id="notice" class="notice" hidden></div>
+        <div id="noPanel" class="settings-block" hidden>
+          <h2>添加你的第一个 Xboard 面板</h2>
+          <p>每个面板使用独立采集密钥，规则、用户与数据分别管理。</p>
+        </div>
+        <div class="metrics" id="metrics">
+          <div><span>访问记录</span><strong id="metricEvents">—</strong></div>
+          <div><span>最近24小时</span><strong id="metricToday">—</strong></div>
+          <div>
+            <span>当前风险用户</span><strong id="metricRisks">—</strong>
+          </div>
+          <div>
+            <span>风控机剩余空间</span><strong id="metricDisk">—</strong>
+          </div>
+        </div>
+        <section id="history" data-view>
+          <form id="filters" class="filters">
+            <label>用户ID<input name="uid" inputmode="numeric" /></label
+            ><label>邮箱<input name="email" /></label
+            ><label>来源IP<input name="ip" /></label
+            ><label>原始UA<input name="ua" /></label
+            ><label>开始时间<input name="from" type="datetime-local" /></label
+            ><label>结束时间<input name="to" type="datetime-local" /></label
+            ><button>查询</button><button type="reset">重置</button
+            ><button type="button" id="export">导出CSV</button>
+          </form>
+          <div id="historyTable"></div>
+        </section>
+        <section id="risk" data-view hidden>
+          <div class="section-heading">
+            <p>任一规则触发即标记；白名单优先。取消后只评估新增记录。</p>
+            <label
+              ><input type="checkbox" id="showResolved" />显示已解除用户</label
+            >
+          </div>
+          <div id="riskTable"></div>
+        </section>
+        <section id="riskHistory" data-view hidden>
+          <div class="section-heading">
+            <p>独立保留的风险评估历史，不随访问记录清空。</p>
+            <button id="clearRiskHistory" class="danger-button">
+              删除全部评估历史
+            </button>
+          </div>
+          <div id="riskHistoryTable"></div>
+        </section>
+        <section id="whitelist" data-view hidden>
+          <p>白名单用户继续保留访问记录，但免于所有风险规则。</p>
+          <form id="subjectSearch" class="filters">
+            <label>用户ID或邮箱<input name="q" /></label><button>搜索</button
+            ><button type="button" id="addWhite">按ID添加白名单</button>
+          </form>
+          <div id="subjectTable"></div>
+        </section>
+        <section id="panelSettings" data-view hidden>
+          <div class="settings-block">
+            <h2>插件接入</h2>
+            <p>
+              在对应 Xboard 安装 v3
+              采集插件，填写下列三项。可信代理IP可保留当前有效配置。
+            </p>
+            <label>风控后台地址<input id="collectorUrl" readonly /></label
+            ><label>面板标识<input id="publicId" readonly /></label
+            ><button id="showKey">显示采集密钥</button
+            ><input id="collectorKey" readonly hidden aria-label="采集密钥" />
+            <p id="heartbeat"></p>
+          </div>
+          <form id="panelForm" class="settings-form">
+            <h2>面板设置</h2>
+            <label>面板名称<input name="name" required maxlength="80" /></label
+            ><label
+              ><input name="notify" type="checkbox" />发送 TG 风险通知</label
+            >
+            <h2>定时清理访问历史</h2>
+            <label
+              >保留最近多少天（0为关闭自动清理）<input
+                name="retentionDays"
+                type="number"
+                min="0"
+                max="3650"
+                required
+            /></label>
+            <p>每分钟清理超过保留天数的访问记录；风险用户和评估历史不删除。</p>
+            <button>保存面板设置</button>
+          </form>
+          <form id="rulesForm" class="settings-form">
+            <h2>风险规则</h2>
+            <p>
+              除UA异常检查外，仅统计插件上报HTTP
+              2xx的请求；失败和未知状态不参与共享判断。共7条规则，任一触发即标记，取最高风险等级。以下阈值可分别调整。
+            </p>
+            <fieldset class="rule-card">
+              <legend>01 · 使用非指定客户端获取订阅 · 低风险</legend>
+              <label
+                ><input name="uaEnabled" type="checkbox" />启用 UA
+                允许名单</label
+              ><label
+                >允许的客户端 UA 关键词（每行一个，忽略大小写）<textarea
+                  name="uaKeywords"
+                  rows="4"
+                ></textarea>
+              </label>
+              <p class="rule-help">
+                UA是客户端获取订阅时发送的身份文字。每行填写一个关键词，原始UA包含任意一个关键词即匹配，忽略大小写，不使用正则表达式。例如shadowrocket可匹配Shadowrocket/3445。未匹配或UA为空时触发UA风险，单独触发为低风险，不会直接阻止订阅；其他风险规则仍独立判断。UA可以伪造或自定义，匹配不代表身份可信。常见关键词可按实际访问记录增删。
+              </p>
+              <button type="button" id="addCommonUa">补充常见关键词</button>
+              <label
+                >检查最近多少小时的访问（1～168）<input
+                  name="uaHours"
+                  type="number"
+                  min="1"
+                  max="168"
+                  required
+              /></label>
+              <p class="rule-help">
+                只检查同一用户最近设置的小时数内的UA，范围随当前时间向前滚动，不按整点清零。例如设为24小时，昨天15点的一次不匹配UA会参与评估到今天15点；此后若没有新的异常UA，这条风险原因自动解除，评估历史仍保留。期间正常UA访问不会抵消异常记录；其他风险原因可能继续生效。允许设置1～168小时。
+              </p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>02 · 多个 IP 获取同一订阅 · 中风险</legend>
+              <label
+                ><input
+                  name="ipEnabled"
+                  type="checkbox"
+                />启用不同IP数量规则</label
+              >
+              <p class="rule-help">
+                统计同一用户最近一段时间使用了多少个不同IP。同一个IP更新多次只算1个。例如设为24小时、5个IP，最近24小时出现第5个不同IP时标记为中风险。时间范围随当前时间向前滚动，不按整点清零；白名单请求不计数。
+              </p>
+              <div class="form-grid">
+                <label
+                  >时间窗口（小时）<input
+                    name="ipHours"
+                    type="number"
+                    min="1"
+                    max="168"
+                    required /></label
+                ><label
+                  >达到几个不同IP<input
+                    name="ipLimit"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                /></label>
+              </div>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>03 · 频繁获取同一订阅 · 中风险</legend>
+              <label
+                ><input
+                  name="rateEnabled"
+                  type="checkbox"
+                />启用获取订阅次数规则</label
+              >
+              <p class="rule-help">
+                统计同一用户最近设置的分钟数内获取订阅的有效次数，达到阈值标记为中风险。同一个中国大陆IP且原始UA完全相同的重复请求合并为1次；不同UA分别计数，包括版本号或大小写不同。国外或归属未知IP按实际次数计算。例如60分钟内，同一个国内IP以相同UA更新8次只算1次；若使用两个不同UA，各更新4次，则算2次。IP白名单请求不计数。国内识别依赖已安装的IP数据库，UA等其他规则仍独立判断。
+              </p>
+              <div class="form-grid">
+                <label
+                  >时间窗口（分钟）<input
+                    name="rateMinutes"
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required /></label
+                ><label
+                  >达到几次请求<input
+                    name="rateLimit"
+                    type="number"
+                    min="1"
+                    max="10000"
+                    required
+                /></label>
+              </div>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>04 · 短时间内多个国内 IP 获取订阅 · 中风险</legend>
+              <label
+                ><input
+                  name="chinaEnabled"
+                  type="checkbox"
+                />启用中国大陆多IP规则</label
+              >
+              <p class="rule-help">
+                仅统计成功获取订阅（HTTP
+                2xx）的同一用户使用的不同中国大陆IP。例如10分钟内出现3个不同国内IP，标记为中风险；同一个国内IP重复更新不增加IP数量。自有节点、IP白名单和其他已启用的豁免不计入。需要安装IP数据库；单项触发不自动封禁，组合升级高风险后仍受封禁开关和观察期控制。
+              </p>
+              <div class="form-grid">
+                <label
+                  >窗口（分钟）<input
+                    name="chinaMinutes"
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required /></label
+                ><label
+                  >不同IP达到几个<input
+                    name="chinaLimit"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                /></label>
+              </div>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>05 · 多个云服务器 IP 获取订阅 · 中风险</legend>
+              <label
+                ><input
+                  name="dcEnabled"
+                  type="checkbox"
+                />启用数据中心多IP规则</label
+              >
+              <p class="rule-help">
+                按IP数据库中的组织名匹配下面的云厂商关键词，统计同一用户使用的不同数据中心IP。例如10分钟内达到3个时标记为中风险；同一家云厂商的不同IP也分别计数。自有节点及豁免请求不计入。云服务器IP不一定代表恶意，建议先查看访问证据，再决定是否封禁。
+              </p>
+              <div class="form-grid">
+                <label
+                  >窗口（分钟）<input
+                    name="dcMinutes"
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required /></label
+                ><label
+                  >不同IP达到几个<input
+                    name="dcLimit"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                /></label>
+              </div>
+              <label
+                >需要关注的云服务商关键词（每行一个，忽略大小写）<textarea
+                  name="dcKeywords"
+                  rows="6"
+                ></textarea>
+              </label>
+              <p>
+                按本地IP数据库的组织名识别。未安装数据库或归属未知时，不触发地域/组织规则。同一家数据中心的不同IP也分别计数。
+              </p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>06 · 多个 IP 和不同 UA 同时获取订阅 · 高风险</legend>
+              <label
+                ><input name="multiEnabled" type="checkbox" />启用规则</label
+              >
+              <div class="form-grid">
+                <label
+                  >统计最近多少分钟<input
+                    name="multiMinutes"
+                    type="number"
+                    min="1"
+                    max="10080"
+                    value="10"
+                    required /></label
+                ><label
+                  >不同IP达到几个<input
+                    name="multiIpLimit"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value="3"
+                    required /></label
+                ><label
+                  >不同原始UA达到几种<input
+                    name="multiUaLimit"
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value="3"
+                    required
+                /></label>
+              </div>
+              <p class="rule-help">
+                同一用户在同一时间范围内同时达到IP和UA数量阈值。按完整原始UA区分，版本号或大小写不同分别计数；空UA也作为一种原始值。只统计HTTP
+                2xx成功请求。
+              </p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>07 · 短时间跨多个国家或地区获取订阅 · 低风险</legend>
+              <label
+                ><input name="countryEnabled" type="checkbox" />启用规则</label
+              >
+              <div class="form-grid">
+                <label
+                  >统计最近多少分钟<input
+                    name="countryMinutes"
+                    type="number"
+                    min="1"
+                    max="10080"
+                    value="30"
+                    required /></label
+                ><label
+                  >国家或地区达到几个<input
+                    name="countryLimit"
+                    type="number"
+                    min="1"
+                    max="250"
+                    value="3"
+                    required
+                /></label>
+              </div>
+              <p class="rule-help">
+                按IP数据库的国家或地区代码计算，不按省市。未知归属、自有节点和豁免请求不计入，仅作为辅助提醒；只统计HTTP
+                2xx请求。
+              </p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>组合升级 · 高风险</legend>
+              <label
+                ><input
+                  name="comboEnabled"
+                  type="checkbox"
+                />启用组合升级</label
+              ><label
+                >组合条件共同统计最近多少分钟<input
+                  name="comboMinutes"
+                  type="number"
+                  min="1"
+                  max="10080"
+                  value="10"
+                  required
+              /></label>
+              <p class="rule-help">
+                “国内多IP”或“云服务器多IP”与“频繁获取”在上述同一时间范围内分别达到数量阈值才升级高风险。相关规则必须开启；不把不同时间的异常拼在一起，也不把普通IP数量和国内IP数量算两个独立异常。
+              </p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>不参与风险判断的情况</legend>
+              <label
+                >自己的代理节点 IP（每行一个完整 IP）<textarea
+                  name="ownedIps"
+                  rows="4"
+                  placeholder="填写你自己的梯子节点出口IP"
+                ></textarea>
+              </label>
+              <p>
+                自有节点不计入国内IP、云服务器IP和跨国家规则；仍检查UA、普通IP数量、请求频率及IP与UA双条件。组合升级时不计入国内或云服务器IP数量。
+              </p>
+              <label
+                ><input name="cloudflareExempt" type="checkbox" />不检查来自
+                Cloudflare 的订阅请求</label
+              >
+              <p class="rule-help">
+                按IP数据库中的组织名是否包含Cloudflare判断。开启后这些请求仍记录，但不参与任何风险判断；同一用户其他IP仍正常检查。
+              </p>
+              <label
+                >IP白名单（每行一个完整IPv4或IPv6地址）<textarea
+                  name="ipWhitelist"
+                  rows="4"
+                ></textarea>
+              </label>
+              <p>
+                豁免请求仍记录，但不计入任何风险规则，不会豁免同一用户其他IP的请求。
+              </p>
+            </fieldset>
+            <p id="rulesDirty" role="status">规则已保存</p>
+            <button type="button" id="previewRules">预览影响</button
+            ><button>保存风险规则</button>
+            <p id="previewResult" role="status"></p>
+          </form>
+          <form id="banForm" class="settings-form">
+            <h2>高风险自动封禁 Xboard 账号</h2>
+            <p>
+              默认关闭。开启后对当前及后续高风险用户执行账号封禁，风险解除不会自动解封。封禁会修改Xboard用户状态；管理员和员工账号不会自动封禁。
+            </p>
+            <label
+              ><input name="enabled" type="checkbox" />启用高风险自动封禁</label
+            >
+            <p>
+              使用v3.5采集插件领取任务，无需填写Xboard地址或管理API凭据。任务约每分钟领取，关闭开关不会撤回已下发的任务；最长30秒内可能仍会执行。
+            </p>
+            <label
+              >封禁前持续高风险观察期（分钟，0为立即执行）<input
+                name="observeMinutes"
+                type="number"
+                min="0"
+                max="10080"
+                value="30"
+                required
+            /></label>
+            <p>
+              默认30分钟。降级或解除后重新计时；保存封禁设置会重新开始观察。风险未持续到观察期不会封禁。
+            </p>
+            <button>保存封禁设置</button>
+            <p id="banStatus"></p>
+            <div id="observations"></div>
+            <div id="banHistory"></div>
+          </form>
+          <form id="unbanForm" class="settings-form">
+            <h2>手动解封 Xboard 账号</h2>
+            <label
+              >用户 ID<input name="uid" type="number" min="1" required
+            /></label>
+            <label>用户邮箱<input name="email" type="email" required /></label>
+            <p>
+              需要v3.5插件。ID与邮箱必须匹配已采集用户；操作将取消旧风险，新的异常仍会重新评估。不恢复套餐、流量或到期时间。执行结果请查看上方历史。
+            </p>
+            <button>提交解封</button>
+          </form>
+          <div class="settings-block danger">
+            <h2>数据管理</h2>
+            <p>
+              清空访问历史不会删除风险用户、评估历史或白名单。风险计算所需的短期证据最多保留7天，到期自动清理。
+            </p>
+            <button id="clearVisits">清空访问历史</button
+            ><button id="deletePanel">删除整个面板</button>
+          </div>
+        </section>
+        <section id="telegram" data-view hidden>
+          <form id="tgForm" class="settings-form">
+            <h2>TG 机器人</h2>
+            <p>
+              仅管理顶部所选面板，每个面板使用不同的机器人。仅支持私聊，切换面板可分别配置。
+            </p>
+            <label
+              >Bot Token<input
+                name="token"
+                type="password"
+                required
+                autocomplete="off" /></label
+            ><label
+              >Telegram个人数字ID<input
+                name="chatId"
+                inputmode="numeric"
+                pattern="[1-9][0-9]{0,15}"
+                required
+                autocomplete="off"
+            /></label>
+            <p>
+              先用此个人账号在机器人私聊发送 /start，再保存。无需绑定码；不是
+              @用户名，也不是群组ID。
+            </p>
+            <button>保存并验证机器人</button>
+          </form>
+          <div class="settings-block">
+            <p id="tgStatus"></p>
+            <button id="tgRemove">移除机器人</button>
+            <pre id="tgCode"></pre>
+            <p>
+              私聊指令：/risk、/user 用户ID、/resolve
+              用户ID、/help。取消风险需点击确认按钮。
+            </p>
+          </div>
+        </section>
+        <section id="account" data-view hidden>
+          <div class="settings-block">
+            <h2>完整备份与迁移</h2>
+            <p>
+              导出数据库、加密密钥及已安装IP数据库，也可直接导入本系统导出的完整备份。文件含敏感凭据，请私下保管。
+            </p>
+            <a class="button" href="/api/backup" download>下载完整备份</a>
+            <form id="importBackupForm">
+              <label
+                >选择完整备份文件<input
+                  id="backupFile"
+                  type="file"
+                  accept=".tar.gz,.tgz,application/gzip"
+                  required
+              /></label>
+              <p>
+                导入将覆盖当前账号、全部面板及记录，原数据会保留。完成后用备份中的账号密码重新登录即可使用；自动封禁保持关闭。最大2GB，更大文件仍可用VPS恢复工具。
+              </p>
+              <button id="importBackupButton">导入备份</button>
+              <p id="importBackupStatus" role="status"></p>
+            </form>
+          </div>
+          <form id="passwordForm" class="settings-form">
+            <h2>修改自己的密码</h2>
+            <label
+              >当前密码<input
+                name="currentPassword"
+                type="password"
+                required
+                autocomplete="current-password" /></label
+            ><label
+              >新密码<input
+                name="newPassword"
+                type="password"
+                required
+                minlength="12"
+                autocomplete="new-password" /></label
+            ><label
+              >确认新密码<input
+                name="confirmPassword"
+                type="password"
+                required
+                autocomplete="new-password" /></label
+            ><button>修改密码并退出登录</button>
+          </form>
+        </section>
+        <section id="site" data-view hidden>
+          <form id="geoForm" class="settings-form">
+            <h2>IP数据库下载凭据</h2>
+            <p>所有面板共用，仅手动更新。凭据加密保存，留在风控机。</p>
+            <label
+              >MaxMind Account ID<input
+                name="accountId"
+                required
+                autocomplete="off" /></label
+            ><label
+              >License Key<input
+                name="licenseKey"
+                type="password"
+                required
+                autocomplete="off" /></label
+            ><button>保存下载凭据</button>
+          </form>
+          <form id="geoImportForm" class="settings-form">
+            <h2>导入 GeoIP.conf</h2>
+            <p>
+              选择 MaxMind
+              提供的配置文件，自动读取账号ID和密钥。仅保存到当前风控后台，不直接发起下载；不回显密钥。
+            </p>
+            <label
+              >配置文件<input
+                name="configFile"
+                type="file"
+                accept=".conf,text/plain"
+                required
+            /></label>
+            <button>导入并保存</button>
+          </form>
+          <div class="settings-block">
+            <h2>IP归属地数据库</h2>
+            <p>
+              下载并校验 City 与 ASN
+              数据库，成功替换后自动删除压缩包和旧库。失败保留原库。
+            </p>
+            <button id="geoCheck">检查更新</button
+            ><button id="geoInstall">下载并安装</button>
+            <pre id="geoStatus"></pre>
+          </div>
+        </section>
+        <div id="pagination" class="pagination">
+          <span id="pageInfo"></span>
+          <div>
+            <button id="prev">上一页</button><button id="next">下一页</button>
+          </div>
+        </div>
+      </main>
+    </div>
+    <dialog id="detail">
+      <h2>记录详情</h2>
+      <pre id="detailText"></pre>
+      <div id="detailEvidence"></div>
+      <button id="closeDetail">关闭</button>
+    </dialog>
+    <dialog id="actionDialog">
+      <form id="actionForm">
+        <h2 id="actionTitle"></h2>
+        <p id="actionHelp"></p>
+        <p id="actionError" role="alert"></p>
+        <div id="actionFields"></div>
+        <div class="actions">
+          <button type="button" id="cancelAction">取消</button
+          ><button type="submit">确认</button>
+        </div>
+      </form>
+    </dialog>
+    <div id="toast" role="status" hidden></div>
+    <script src="/app.js?v=3.7.0"></script>
+  </body>
+</html>

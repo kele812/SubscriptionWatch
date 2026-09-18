@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>订阅观察 · 登录</title>
+    <link rel="stylesheet" href="/style.css?v=3.7.0" />
+  </head>
+  <body>
+    <section class="login">
+      <div class="login-intro" aria-hidden="true">
+        <div class="brand">SUBSCRIPTION WATCH</div>
+        <h2>每一次访问，<span>都清晰可见。</span></h2>
+        <p>
+          连接你的 Xboard 面板，查看订阅记录、识别异常访问，让风险有据可查。
+        </p>
+        <div class="login-caption">ACCESS / OBSERVE / REVIEW</div>
+      </div>
+      <form id="authForm">
+        <div class="brand">订阅观察 / v3.7.0</div>
+        <h1 id="authTitle">登录</h1>
+        <p id="authHelp">请输入账号密码。登录后才能访问后台。</p>
+        <label
+          >账号<input
+            name="username"
+            required
+            minlength="3"
+            maxlength="64"
+            autocomplete="username" /></label
+        ><label
+          >密码<input
+            name="password"
+            type="password"
+            required
+            maxlength="256"
+            autocomplete="current-password" /></label
+        ><label id="confirmField" hidden
+          >确认密码<input
+            name="confirmPassword"
+            type="password"
+            autocomplete="new-password" /></label
+        ><button id="authSubmit" type="submit" disabled>正在检查…</button>
+        <p id="authError" role="alert"></p>
+      </form>
+    </section>
+    <script src="/auth.js?v=3.7.0"></script>
+  </body>
+</html>

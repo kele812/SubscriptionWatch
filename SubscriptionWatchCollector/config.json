@@ -1,0 +1,46 @@
+{
+  "name": "订阅观察采集器",
+  "code": "subscription_watch_collector",
+  "version": "3.5.0",
+  "description": "订阅轻量采集与签名封禁任务执行，风险计算在风控机。",
+  "author": "Subscription Watch",
+  "type": "feature",
+  "config": {
+    "panel_id": {
+      "type": "string",
+      "default": "",
+      "label": "面板标识",
+      "description": "从风控后台对应面板的接入设置复制，每个面板独立。"
+    },
+    "endpoint": {
+      "type": "string",
+      "default": "",
+      "label": "风控后台地址",
+      "description": "填写 https://你的风控后台域名，不填Xboard或新加坡地址。必须使用有效HTTPS证书。"
+    },
+    "secret": {
+      "type": "string",
+      "default": "",
+      "label": "采集密钥",
+      "description": "从风控后台的接入设置复制采集密钥；不是Xboard管理凭据。"
+    },
+    "trusted_proxies": {
+      "type": "string",
+      "default": "203.0.113.10",
+      "label": "可信代理IP",
+      "description": "逗号分隔。填写新加坡反代IP；如Xboard前还有本机Nginx、Docker网关，需加入其实际IP。只填明确的IP，不支持通配符。"
+    },
+    "queue_limit": {
+      "type": "number",
+      "default": 2000,
+      "label": "临时队列上限",
+      "description": "100～10000条，默认2000；满后丢弃新记录，不阻塞订阅。"
+    },
+    "retention_seconds": {
+      "type": "number",
+      "default": 3600,
+      "label": "临时记录有效期（秒）",
+      "description": "300～86400秒，默认1小时。过期不再补传。"
+    }
+  }
+}
