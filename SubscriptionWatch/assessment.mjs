@@ -14,7 +14,7 @@ export function assess(db, panel, subject, now, geo) {
     r.countryEnabled ? r.countryMinutes : 0,
     r.comboEnabled ? r.comboMinutes : 0,
   );
-  const all = db
+  const observed = db
     .prepare(
       "SELECT ts,ip,ua,status FROM samples WHERE panel=? AND uid=? AND ts>? AND ts<=? ORDER BY ts DESC,id DESC",
     )
@@ -24,14 +24,14 @@ export function assess(db, panel, subject, now, geo) {
       Math.max(subject.dismissed, now - horizon * 60000),
       now,
     )
-    .filter((e) => !r.ipWhitelist.includes(e.ip))
-    .map((e) => ({ ...e, geo: geo?.lookup(e.ip) || {} }))
-    .filter(
-      (e) =>
-        !(
-          r.cloudflareExempt && /\bcloudflare\b/i.test(e.geo.organization || "")
-        ),
-    );
+    .map((e) => ({ ...e, geo: geo?.lookup(e.ip) || {} }));
+  const exemption = (e) =>
+    r.ipWhitelist.includes(e.ip)
+      ? "IP 白名单"
+      : r.cloudflareExempt && /\bcloudflare\b/i.test(e.geo.organization || "")
+        ? "Cloudflare 请求豁免"
+        : "";
+  const all = observed.filter((e) => !exemption(e));
   const success = all.filter((e) => e.status >= 200 && e.status < 300);
   const within = (rows, minutes) =>
     rows.filter((e) => e.ts > now - minutes * 60000);
@@ -67,7 +67,39 @@ export function assess(db, panel, subject, now, geo) {
     extra = {},
   ) {
     // Keep representative IP/UA pairs first, so repeated downloads cannot hide other IPs.
-    const pairs = unique(rows, (e) => JSON.stringify([e.ip, e.ua]));
+    const windowRows = within(observed, minutes);
+    const selected = new Set(rows);
+    const exclusion = (e) => {
+      if (exemption(e)) return exemption(e);
+      if (selected.has(e)) return "";
+      if (code !== "ua" && !(e.status >= 200 && e.status < 300))
+        return "请求未成功或缺少响应状态";
+      if (
+        ["ip", "china", "datacenter", "country"].includes(code) &&
+        r.ownedIps.includes(e.ip)
+      )
+        return "自有节点";
+      if (code === "ua") return "UA 符合允许关键词";
+      if (code === "china") return "非中国大陆或归属未知";
+      if (code === "datacenter") return "未匹配数据中心关键词";
+      if (code === "country") return "国家或地区未知";
+      return "不符合本条规则条件";
+    };
+    const groups = new Map();
+    for (const e of windowRows) {
+      const why = exclusion(e);
+      if (!why) continue;
+      if (!groups.has(why)) groups.set(why, []);
+      groups.get(why).push(e);
+    }
+    // Include exclusions, without letting them hide triggering evidence.
+    const pairs = [
+      ...unique(rows, (e) => JSON.stringify([e.ip, e.ua])),
+      ...unique(
+        windowRows.filter((e) => !selected.has(e)),
+        (e) => JSON.stringify([e.ip, e.ua, exclusion(e)]),
+      ),
+    ];
     reasons.push({
       code,
       label,
@@ -78,6 +110,27 @@ export function assess(db, panel, subject, now, geo) {
       windowStart: now - minutes * 60000,
       windowEnd: now,
       ruleVersion: "3.7",
+      accounting: {
+        totalIps: new Set(windowRows.map((e) => e.ip)).size,
+        totalRequests: windowRows.length,
+        includedIps: new Set(rows.map((e) => e.ip)).size,
+        includedRequests: rows.length,
+        mergedRequests: ["rate", "comboChina", "comboCloud"].includes(code)
+          ? rows.length - effective(rows).length
+          : 0,
+        unit:
+          code === "ua" || code === "rate"
+            ? "次"
+            : code === "country"
+              ? "个国家或地区"
+              : "个不同 IP",
+        exclusions: [...groups].map(([reason, entries]) => ({
+          reason,
+          requests: entries.length,
+          ipCount: new Set(entries.map((e) => e.ip)).size,
+          ips: [...new Set(entries.map((e) => e.ip))].slice(0, 100),
+        })),
+      },
       ruleSnapshot: Object.fromEntries(
         Object.entries(r).filter(
           ([k]) => !["ipWhitelist", "ownedIps", "retentionDays"].includes(k),
@@ -91,6 +144,25 @@ export function assess(db, panel, subject, now, geo) {
         status: e.status,
         geo: e.geo,
         owned: r.ownedIps.includes(e.ip),
+        included: selected.has(e),
+        exclusion: exclusion(e),
+        anomaly:
+          /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.)/.test(
+            e.ip,
+          ) || /^(::1$|f[cd]|fe[89ab])/i.test(e.ip)
+            ? "回环、内网或链路本地地址，请检查真实 IP 采集"
+            : !e.geo.countryCode
+              ? "归属地未知"
+              : "",
+        components:
+          code.startsWith("combo") && selected.has(e)
+            ? [
+                "请求次数统计",
+                ...((code === "comboChina" ? china(e) : cloud(e))
+                  ? ["不同 IP 统计"]
+                  : []),
+              ]
+            : undefined,
       })),
       evidenceLimited: pairs.length > 100,
       evidenceCount: pairs.length,
@@ -120,7 +192,7 @@ export function assess(db, panel, subject, now, geo) {
       r.ipEnabled,
       r.ipHours * 60,
       r.ipLimit,
-      () => true,
+      (e) => !r.ownedIps.includes(e.ip),
       "多个 IP 获取同一订阅",
     ],
     [

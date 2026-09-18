@@ -1,34 +1,36 @@
 # SubscriptionWatch
 
-独立部署的订阅访问风控系统。
+## 上传插件
 
-- [风控后台 v3.7.0](SubscriptionWatch/README.md)：Docker部署，订阅记录、7条风险规则、风险预览、Telegram通知、IP数据库管理。
-- [Xboard采集插件 v3.7.0](SubscriptionWatchCollector/README.md)：轻量采集与签名账号控制。
-- [安装和升级](SubscriptionWatch/UPGRADE.md)
-- [数据备份与恢复](SubscriptionWatch/BACKUP.md)
+下载 [采集插件 v3.7.0](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.7.0.zip)，在 Xboard 的插件管理中上传 ZIP 并启用。
 
-## 部署后台
+先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；Xboard 原有的每分钟计划任务需正常运行。
 
-公开仓库，任何人均可下载，无需 GitHub 账号或 SSH 密钥。在 Ubuntu 风控 VPS 上以 root 执行，需预先安装 Git、Docker 和 Docker Compose 插件。
+## 一键部署
 
-### 一键部署
-
-下载项目、构建镜像并启动（目标目录必须尚不存在）：
+在 Ubuntu 风控 VPS 上以 root 执行，先安装 Git、Docker 和 Docker Compose。下面命令下载代码、构建并启动服务，目标目录需尚不存在：
 
 ```bash
 git clone https://github.com/kele812/SubscriptionWatch.git /opt/SubscriptionWatch-repo && bash /opt/SubscriptionWatch-repo/deploy.sh
 ```
 
-### 一键更新
+## 一键更新
 
-下载最新版、备份已有数据并重建服务：
+下载最新版、备份数据并重启风控后台：
 
 ```bash
 bash /opt/SubscriptionWatch-repo/update.sh
 ```
 
-宝塔 HTTPS 网站反向代理到 `http://127.0.0.1:18080`。更新继续使用原数据卷和账号；备份保存在 `/opt/SubscriptionWatch-backup-*`，需要自行管理磁盘空间。Xboard 插件需单独更新。
+原账号和数据保留，备份在 `/opt/SubscriptionWatch-backup-*`。采集插件需在 Xboard 单独上传更新。如果旧安装使用 SSH 下载，先执行：
 
-旧 SSH 下载方式迁移、部署说明见 [一键部署与更新文档](DEPLOY.md)。首次登录和插件接入步骤见 [后台说明](SubscriptionWatch/README.md)。
+```bash
+git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele812/SubscriptionWatch.git
+```
 
-仓库只保存源码和公开测试夹具，不保存真实账号凭据、运行数据库或备份。
+## 宝塔反代
+
+1. 将域名解析到风控 VPS，在宝塔添加此域名的网站。
+2. 为网站申请 SSL，启用 HTTPS。
+3. 添加反向代理，目标地址填 `http://127.0.0.1:18080`，关闭代理缓存。
+4. 浏览器打开 `https://你的域名`，首次访问创建账号密码，再添加 Xboard 面板并配置插件。

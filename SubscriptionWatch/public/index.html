@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.7.0" />
+    <link rel="stylesheet" href="/style.css?v=3.7.0-evidence2" />
   </head>
   <body>
     <div id="app" hidden>
@@ -377,7 +377,7 @@
                 ></textarea>
               </label>
               <p>
-                自有节点不计入国内IP、云服务器IP和跨国家规则；仍检查UA、普通IP数量、请求频率及IP与UA双条件。组合升级时不计入国内或云服务器IP数量。
+                自有节点不计入普通IP数量、国内IP、云服务器IP和跨国家规则；仍检查UA、请求频率及IP与UA双条件。组合升级时不计入国内或云服务器IP数量。
               </p>
               <label
                 ><input name="cloudflareExempt" type="checkbox" />不检查来自
@@ -601,6 +601,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.7.0"></script>
+    <script src="/app.js?v=3.7.0-evidence2"></script>
   </body>
 </html>

@@ -1826,8 +1826,17 @@ test("v3.7 完整UA双条件、失败请求排除、预览无写入且鉴权", (
     let risk = (await c.api(url + "/risks", undefined, auth)).rows[0];
     assert.equal(risk.level, "high");
     assert.equal(risk.reasons[0].uaCount, 3);
-    assert.equal(risk.reasons[0].evidence.length, 3);
-    assert.ok(risk.reasons[0].evidence.every((e) => e.status === 200));
+    assert.equal(risk.reasons[0].evidence.filter((e) => e.included).length, 3);
+    assert.ok(
+      risk.reasons[0].evidence
+        .filter((e) => e.included)
+        .every((e) => e.status === 200),
+    );
+    assert.ok(
+      risk.reasons[0].evidence.some(
+        (e) => !e.included && e.exclusion.includes("请求未成功"),
+      ),
+    );
     const snapshot = () =>
       JSON.stringify(
         [
@@ -1910,7 +1919,11 @@ test("v3.7 跨国家排除未知及自有节点，组合不得拼接窗口外异
     const result = (await c.api(url + "/risks", undefined, auth)).rows[0];
     assert.equal(result.level, "low");
     assert.equal(result.reasons[0].count, 3);
-    assert.equal(result.reasons[0].evidence.length, 3);
+    assert.equal(
+      result.reasons[0].evidence.filter((e) => e.included).length,
+      3,
+    );
+    assert.equal(result.reasons[0].accounting.totalIps, 5);
     const now = Date.now();
     await send(c, p, [
       ...Array.from({ length: 5 }, (_, i) =>

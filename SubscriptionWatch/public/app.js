@@ -67,6 +67,8 @@ function riskDetail(r) {
     时间: format(r.updated || r.ts),
     风险原因: r.reasons.map((x) => ({
       规则: x.label,
+      代码: x.code,
+      统计: x.accounting,
       规则版本: x.ruleVersion || "旧版",
       附加条件: x.uaThreshold
         ? `不同UA ${x.uaCount}种 / 阈值 ${x.uaThreshold}种`
@@ -90,6 +92,10 @@ function riskDetail(r) {
         归属地: geoText(e.geo || {}),
         原始UA: e.ua,
         自有节点: e.owned ? "是" : "否",
+        计入: e.included,
+        排除原因: e.exclusion,
+        地址提示: e.anomaly,
+        参与统计: e.components,
       })),
     })),
   };
@@ -142,48 +148,38 @@ function detail(data) {
     const identity = document.createElement("p");
     identity.textContent = `用户 ${data.用户ID} · ${data.邮箱} · ${data.时间}`;
     evidence.append(identity);
-    const overview = document.createElement("section");
-    overview.className = "evidence-card";
-    const overviewTitle = document.createElement("h3");
-    overviewTitle.textContent = "触发原因与相关 IP、原始 UA";
-    overview.append(overviewTitle);
-    const pairs = new Map();
-    for (const reason of data.风险原因)
-      for (const hit of reason.访问证据) {
-        const key = JSON.stringify([hit.IP, hit.原始UA]);
-        if (!pairs.has(key)) pairs.set(key, { hit, rules: new Set() });
-        pairs.get(key).rules.add(reason.规则);
-      }
-    for (const { hit, rules } of [...pairs.values()].slice(0, 100)) {
-      const row = document.createElement("div");
-      row.className = "evidence-hit";
-      for (const text of [
-        `IP：${hit.IP} · ${hit.归属地}`,
-        `原始 UA：${hit.原始UA || "（空）"}`,
-        `证据时间：${hit.时间}${hit.自有节点 === "是" ? " · 自有节点" : ""}`,
-        `相关规则：${[...rules].join("、")}`,
-      ]) {
-        const line = document.createElement("p");
-        line.textContent = text;
-        row.append(line);
-      }
-      overview.append(row);
-    }
-    const coverage = document.createElement("p");
-    coverage.textContent = !pairs.size
-      ? "旧记录未保存IP和UA证据，不补造数据。"
-      : pairs.size > 100 ||
-          data.风险原因.some((r) => r.证据说明.includes("未完整"))
-        ? "证据未完整展示，汇总最多显示100组；各规则详情保留已采集证据。"
-        : "按IP和完整原始UA分组；同一IP的不同UA分别列出。";
-    overview.append(coverage);
-    evidence.append(overview);
+    const title = document.createElement("h3");
+    title.textContent = "风险原因与访问详情";
+    evidence.append(title);
     for (const reason of data.风险原因) {
       const card = document.createElement("section");
       card.className = "evidence-card";
       const heading = document.createElement("h3");
       heading.textContent = reason.规则;
       card.append(heading);
+      const stats = reason.统计;
+      if (stats) {
+        const summary = document.createElement("p");
+        const duration =
+          reason.窗口分钟 % 60 === 0
+            ? `${reason.窗口分钟 / 60} 小时`
+            : `${reason.窗口分钟} 分钟`;
+        summary.textContent = `在最近 ${duration}内（${reason.窗口开始} 至 ${reason.窗口结束}），共有 ${stats.totalIps} 个不同 IP 请求同一订阅，共请求 ${stats.totalRequests} 次。最终计入 ${reason.实际数量} ${stats.unit}，达到 ${reason.阈值} ${stats.unit}的触发阈值。`;
+        card.append(summary);
+        for (const group of stats.exclusions) {
+          const line = document.createElement("p");
+          line.textContent = `不计入：${group.reason}，涉及 ${group.ipCount} 个 IP、${group.requests} 次请求。IP：${group.ips.join("、")}${group.ipCount > group.ips.length ? "（仅展示前100个）" : ""}`;
+          card.append(line);
+        }
+        const note = document.createElement("p");
+        note.textContent = `计入请求涉及 ${stats.includedIps} 个不同 IP、${stats.includedRequests} 次请求。${stats.mergedRequests ? `同一中国大陆 IP 且完整 UA 相同的重复请求合并，减少 ${stats.mergedRequests} 次计数。` : ""}${stats.exclusions.length ? "同一 IP 可能有计入和排除的不同请求，各项 IP 数不能直接相减。" : "没有被排除的请求。"} 按评估时配置记录，历史结论不随当前设置改写。`;
+        card.append(note);
+      } else {
+        const legacy = document.createElement("p");
+        legacy.textContent =
+          "历史评估：按当时配置判断，未保存排除明细，不能按当前白名单推测。";
+        card.append(legacy);
+      }
       for (const text of [
         `规则版本：${reason.规则版本} ${reason.附加条件}`,
         `实际 ${reason.实际数量} / 阈值 ${reason.阈值} · 窗口 ${reason.窗口分钟} 分钟`,
@@ -203,13 +199,26 @@ function detail(data) {
         const line = document.createElement("div");
         line.className = "evidence-hit";
         for (const text of [
-          `${hit.时间} · ${hit.IP}${hit.自有节点 === "是" ? " · 自有节点" : ""}`,
+          `${hit.时间} · ${hit.IP} · ${hit.计入 === true ? "参与触发" : hit.计入 === false ? "不计入：" + hit.排除原因 : "历史证据（未保存计入状态）"}${hit.自有节点 === "是" ? " · 自有节点" : ""}`,
           hit.归属地,
           `UA：${hit.原始UA || "（空）"}`,
         ]) {
           const p = document.createElement("p");
           p.textContent = text;
+          if (
+            hit.计入 === true &&
+            (reason.代码 === "ua"
+              ? text.startsWith("UA：")
+              : text.startsWith(hit.时间))
+          )
+            p.className = "evidence-trigger";
           line.append(p);
+        }
+        for (const text of [hit.地址提示, hit.参与统计?.join("、")]) {
+          if (!text) continue;
+          const note = document.createElement("p");
+          note.textContent = text;
+          line.append(note);
         }
         card.append(line);
       }
@@ -989,7 +998,7 @@ function updateRuleConditions(dirty = true) {
         v("ipHours") +
         "小时达到" +
         v("ipLimit") +
-        "个不同IP，标记中风险",
+        "个不同IP，标记中风险；自有节点和豁免请求不计入",
     ],
     [
       "rateEnabled",

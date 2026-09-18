@@ -869,3 +869,7 @@ dialog::backdrop {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+.evidence-trigger {
+  color: #ff707e;
+  font-weight: 700;
+}
