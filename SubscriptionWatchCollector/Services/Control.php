@@ -41,7 +41,7 @@ class Control
         $results = [];
         foreach ($pending as $id => $status) $results[] = ['id' => $id, 'status' => $status];
         $nonce = bin2hex(random_bytes(24));
-        $payload = json_encode(['schema' => 1, 'capability' => 'ban-v2', 'version' => '3.5.0', 'nonce' => $nonce,
+        $payload = json_encode(['schema' => 1, 'capability' => 'ban-v2', 'version' => '3.7.0', 'nonce' => $nonce,
             'acceptTasks' => $take && (int) $redis->hlen($prefix . 'results') < 90, 'results' => $results], JSON_THROW_ON_ERROR);
         $timestamp = (string) time();
         $response = Http::connectTimeout(2)->timeout(5)->withoutRedirecting()->withHeaders([

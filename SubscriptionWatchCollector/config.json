@@ -1,7 +1,7 @@
 {
   "name": "订阅观察采集器",
   "code": "subscription_watch_collector",
-  "version": "3.5.0",
+  "version": "3.7.0",
   "description": "订阅轻量采集与签名封禁任务执行，风险计算在风控机。",
   "author": "Subscription Watch",
   "type": "feature",
