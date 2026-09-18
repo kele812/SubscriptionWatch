@@ -22,7 +22,7 @@ git clone https://github.com/kele812/SubscriptionWatch.git /opt/SubscriptionWatc
 bash /opt/SubscriptionWatch-repo/update.sh
 ```
 
-原账号和数据保留，备份在 `/opt/SubscriptionWatch-backup-*`。采集插件需在 Xboard 单独上传更新。如果旧安装使用 SSH 下载，先执行：
+原账号和数据保留，备份在 `/opt/SubscriptionWatch-backup-*`。采集插件需在 XB 单独上传更新。如果旧安装使用 SSH 下载，先执行：
 
 ```bash
 git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele812/SubscriptionWatch.git
@@ -33,4 +33,4 @@ git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele
 1. 将域名解析到风控 VPS，在宝塔添加此域名的网站。
 2. 为网站申请 SSL，启用 HTTPS。
 3. 添加反向代理，目标地址填 `http://127.0.0.1:18080`，关闭代理缓存。
-4. 浏览器打开 `https://你的域名`，首次访问创建账号密码，再添加 Xboard 面板并配置插件。
+4. 浏览器打开 `https://你的域名`，首次访问创建账号密码，再添加 XB 面板并配置插件。
