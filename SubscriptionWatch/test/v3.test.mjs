@@ -1497,19 +1497,17 @@ test("3.7.1迁移只保留UA当前标记，保留历史访问，清空旧评估�
     c.app.db
       .prepare("UPDATE risks SET reasons=? WHERE uid=2")
       .run(JSON.stringify(old));
-    c.app.db
-      .prepare("UPDATE risks SET reasons=? WHERE uid=1")
-      .run(
-        JSON.stringify([
-          {
-            code: "ua",
-            label: "旧UA",
-            ruleVersion: "3.7",
-            evidence: [{ ip: "1.1.1.1", ua: "Browser", status: 200 }],
-          },
-          ...old,
-        ]),
-      );
+    c.app.db.prepare("UPDATE risks SET reasons=? WHERE uid=1").run(
+      JSON.stringify([
+        {
+          code: "ua",
+          label: "旧UA",
+          ruleVersion: "3.7",
+          evidence: [{ ip: "1.1.1.1", ua: "Browser", status: 200 }],
+        },
+        ...old,
+      ]),
+    );
     const visits = c.app.db.prepare("SELECT count(*) n FROM visits").get().n;
     const history = c.app.db
       .prepare("SELECT count(*) n FROM risk_history")
@@ -1542,7 +1540,7 @@ test("3.7.1迁移只保留UA当前标记，保留历史访问，清空旧评估�
     );
   }));
 
-test("3.7.1可疑用户观察期保留，规则关闭不自动封禁，预览无写入", () =>
+test("3.7.2取消观察期，旧观察设置不阻止下一次领取，规则关闭不封禁", () =>
   fixture(async (c) => {
     const auth = await setup(c),
       p = await panel(c, auth),
@@ -1550,20 +1548,7 @@ test("3.7.1可疑用户观察期保留，规则关闭不自动封禁，预览无
     await send(c, p, [event({ ua: "Browser" })]);
     await control(c, p);
     await c.api(url + "/ban", { enabled: true, observeMinutes: 30 }, auth);
-    assert.equal((await control(c, p)).tasks.length, 0);
-    evaluate(
-      c.app.db,
-      c.app.db.prepare("SELECT * FROM panels WHERE id=?").get(p.id),
-      1,
-      Date.now(),
-      c.app.geo,
-    );
-    c.app.db
-      .prepare("UPDATE risk_observation SET since=?")
-      .run(Date.now() - 31 * 60000);
-    c.app.db
-      .prepare("UPDATE ban_settings SET since=?")
-      .run(Date.now() - 31 * 60000);
+    c.app.db.prepare("UPDATE ban_settings SET observe_minutes=10080").run();
     const snapshot = c.app.db
       .prepare("SELECT count(*) n FROM risk_history")
       .get().n;

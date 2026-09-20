@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.7.1" />
+    <link rel="stylesheet" href="/style.css?v=3.7.2" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.7.1 · 独立采集 · 风险评估</small>
+        <small>v3.7.2 · 独立采集 · 风险评估</small>
         <nav>
           <button data-tab="history" class="active">访问记录</button
           ><button data-tab="risk">可疑用户</button
@@ -287,21 +287,11 @@
             <p>
               使用v3.5采集插件领取任务，无需填写Xboard地址或管理API凭据。任务约每分钟领取，关闭开关不会撤回已下发的任务；最长30秒内可能仍会执行。
             </p>
-            <label
-              >封禁前持续可疑用户观察期（分钟，0为立即执行）<input
-                name="observeMinutes"
-                type="number"
-                min="0"
-                max="10080"
-                value="30"
-                required
-            /></label>
             <p>
-              默认30分钟。实时可疑条件消失后重新计时，已标记风险仍保留；保存封禁设置会重新开始观察。实时可疑用户未持续到观察期不会封禁。
+              无观察期。开启后，符合当前判断条件的可疑用户将在插件下一次领取任务时执行封禁，通常约一分钟内。
             </p>
             <button>保存封禁设置</button>
             <p id="banStatus"></p>
-            <div id="observations"></div>
             <div id="banHistory"></div>
           </form>
           <form id="unbanForm" class="settings-form">
@@ -476,6 +466,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.7.1"></script>
+    <script src="/app.js?v=3.7.2"></script>
   </body>
 </html>

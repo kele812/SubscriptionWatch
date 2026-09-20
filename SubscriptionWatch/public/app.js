@@ -538,7 +538,7 @@ async function refresh() {
                   button("封禁账号", () =>
                     ask(
                       "确认封禁整个Xboard账号",
-                      `用户 ${r.uid} / ${r.email}。不等待观察期，插件下次轮询执行。账号封禁会影响客户使用；管理员、员工及白名单用户不会封禁。`,
+                      `用户 ${r.uid} / ${r.email}。插件下次轮询执行。账号封禁会影响客户使用；管理员、员工及白名单用户不会封禁。`,
                       [],
                       async () => {
                         await api(`/api/panels/${id}/ban/manual`, {
@@ -634,18 +634,6 @@ async function refresh() {
       const config = await read(endpoint("ban"));
       const f = $("#banForm");
       f.elements.enabled.checked = config.enabled;
-      f.elements.observeMinutes.value = config.observeMinutes;
-      table(
-        "#observations",
-        ["观察中的用户", "持续可疑用户起点", "观察期结束（非保证执行）"],
-        config.observing.map((x) => [
-          `${x.uid} / ${x.email}`,
-          format(x.since),
-          config.enabled
-            ? format(x.since + config.observeMinutes * 60000)
-            : "自动封禁关闭",
-        ]),
-      );
       $("#banStatus").textContent =
         (config.connected ? "插件控制通道已连接" : "等待采集插件连接") +
         " · 最近连接：" +
@@ -888,7 +876,6 @@ $("#banForm").onsubmit = run(async () => {
   const f = $("#banForm"),
     data = Object.fromEntries(new FormData(f));
   data.enabled = f.elements.enabled.checked;
-  data.observeMinutes = Number(f.elements.observeMinutes.value);
   await api(endpoint("ban"), data);
   await refresh();
   toast("封禁设置已保存");

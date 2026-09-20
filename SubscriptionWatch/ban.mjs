@@ -20,7 +20,7 @@ export class AccountBan {
       CREATE TABLE IF NOT EXISTS control_clients(panel INTEGER PRIMARY KEY REFERENCES panels(id) ON DELETE CASCADE,seen INTEGER,version TEXT);
       CREATE TABLE IF NOT EXISTS control_nonces(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,nonce TEXT,created INTEGER,PRIMARY KEY(panel,nonce));`);
     for (const [table, column, spec] of [
-      ["ban_settings", "observe_minutes", "INTEGER DEFAULT 30"],
+      ["ban_settings", "observe_minutes", "INTEGER DEFAULT 0"],
       ["ban_actions", "kind", "TEXT DEFAULT 'ban'"],
       ["ban_actions", "email", "TEXT"],
       ["ban_actions", "origin", "TEXT DEFAULT 'auto'"],
@@ -62,15 +62,6 @@ export class AccountBan {
       lastSeen: client?.seen || null,
       canUnban:
         client?.capability === "ban-v2" && client.seen > Date.now() - 180000,
-      observeMinutes:
-        this.db
-          .prepare("SELECT observe_minutes FROM ban_settings WHERE panel=?")
-          .get(panel)?.observe_minutes ?? 30,
-      observing: this.db
-        .prepare(
-          "SELECT o.uid,s.email,o.since FROM risk_observation o JOIN subjects s ON s.panel=o.panel AND s.uid=o.uid JOIN risks r ON r.panel=o.panel AND r.uid=o.uid WHERE o.panel=? AND r.active=1 AND NOT EXISTS(SELECT 1 FROM ban_actions a WHERE a.panel=o.panel AND a.uid=o.uid AND a.episode=r.started) ORDER BY o.since LIMIT 100",
-        )
-        .all(panel),
       history: this.db
         .prepare(
           "SELECT id,uid,kind,origin,status,message,created,updated FROM ban_actions WHERE panel=? ORDER BY id DESC LIMIT 30",
@@ -79,9 +70,6 @@ export class AccountBan {
     };
   }
   configure(panel, b) {
-    const minutes = b.observeMinutes ?? this.status(panel).observeMinutes;
-    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 10080)
-      throw Error("观察期须为0～10080分钟，0为立即执行");
     if (typeof b.enabled !== "boolean") throw Error("封禁开关格式错误");
     if (b.enabled && !this.status(panel).connected)
       throw Error("请先更新并启用v3.4采集插件，等待插件连接后再开启封禁");
@@ -89,7 +77,7 @@ export class AccountBan {
       .prepare(
         "INSERT INTO ban_settings(panel,enabled,since,observe_minutes) VALUES(?,?,?,?) ON CONFLICT(panel) DO UPDATE SET enabled=excluded.enabled,since=excluded.since,observe_minutes=excluded.observe_minutes,base=NULL,prefix=NULL,auth=NULL",
       )
-      .run(panel, Number(b.enabled), Date.now(), minutes);
+      .run(panel, Number(b.enabled), Date.now(), 0);
     this.db.prepare("DELETE FROM risk_observation WHERE panel=?").run(panel);
   }
   unban(panel, uid, email) {
@@ -166,7 +154,7 @@ export class AccountBan {
     const now = Date.now();
     this.db
       .prepare(
-        "INSERT INTO ban_actions(panel,uid,episode,status,message,created,updated,kind,email,origin) VALUES(?,?,?,'待领取','手动封禁，不等待观察期',?,?,'ban',?,'manual')",
+        "INSERT INTO ban_actions(panel,uid,episode,status,message,created,updated,kind,email,origin) VALUES(?,?,?,'待领取','手动封禁，插件下次领取执行',?,?,'ban',?,'manual')",
       )
       .run(panel, uid, -now, now, now, email);
   }
@@ -314,32 +302,15 @@ export class AccountBan {
           .prepare("SELECT enabled FROM ban_settings WHERE panel=?")
           .get(panel.id)?.enabled
       ) {
-        const setting = this.db
-          .prepare("SELECT * FROM ban_settings WHERE panel=?")
-          .get(panel.id);
         const rows = this.db
           .prepare(
-            "SELECT r.* FROM risks r WHERE r.panel=? AND r.active=1 AND (?=0 OR EXISTS(SELECT 1 FROM risk_observation o WHERE o.panel=r.panel AND o.uid=r.uid AND o.since<=?)) AND EXISTS(SELECT 1 FROM json_each(r.reasons) j WHERE json_extract(j.value,'$.code') IN ('ua','cloud','cn60','cn720','foreign60','foreign720')) AND NOT EXISTS(SELECT 1 FROM ban_actions a WHERE a.panel=r.panel AND a.uid=r.uid AND (a.episode=r.started OR (a.origin='manual' AND a.created>=r.started) OR (a.kind='unban' AND a.status IN ('待领取','已下发','失败或待核对')))) ORDER BY r.updated LIMIT 30",
+            "SELECT r.* FROM risks r WHERE r.panel=? AND r.active=1 AND EXISTS(SELECT 1 FROM json_each(r.reasons) j WHERE json_extract(j.value,'$.code') IN ('ua','cloud','cn60','cn720','foreign60','foreign720')) AND NOT EXISTS(SELECT 1 FROM ban_actions a WHERE a.panel=r.panel AND a.uid=r.uid AND (a.episode=r.started OR (a.origin='manual' AND a.created>=r.started) OR (a.kind='unban' AND a.status IN ('待领取','已下发','失败或待核对')))) ORDER BY r.updated LIMIT 30",
           )
-          .all(
-            panel.id,
-            setting.observe_minutes,
-            now - setting.observe_minutes * 60000,
-          );
+          .all(panel.id);
         for (const r of rows) {
           if (tasks.length >= 3) break;
           const current = this.eligible(panel, r.uid, now);
           if (!current) continue;
-          const since = this.db
-            .prepare(
-              "SELECT since FROM risk_observation WHERE panel=? AND uid=?",
-            )
-            .get(panel.id, r.uid)?.since;
-          if (
-            now - Math.max(since ?? now, setting.since) <
-            setting.observe_minutes * 60000
-          )
-            continue;
           const id = token(),
             expires = now + 30000;
           const action = Number(

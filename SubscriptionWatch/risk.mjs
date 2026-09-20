@@ -25,38 +25,6 @@ export function evaluate(db, panel, uid, now = Date.now(), geo, fresh = []) {
         JSON.stringify(reasons[0]?.ruleSnapshot);
   if (!active && !old) return;
   if (!active && old && !old.active) return;
-  const high = riskLevel(current) === "suspicious";
-  if (
-    db
-      .prepare(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='risk_observation'",
-      )
-      .get()
-  ) {
-    if (
-      high &&
-      (!old?.active ||
-        Math.max(
-          0,
-          ...previous
-            .filter((x) => riskLevel([x]) === "suspicious")
-            .map((x) => x.expires ?? Number.MAX_SAFE_INTEGER),
-        ) <= now)
-    )
-      db.prepare("DELETE FROM risk_observation WHERE panel=? AND uid=?").run(
-        panel.id,
-        uid,
-      );
-    if (!high)
-      db.prepare("DELETE FROM risk_observation WHERE panel=? AND uid=?").run(
-        panel.id,
-        uid,
-      );
-    else
-      db.prepare(
-        "INSERT OR IGNORE INTO risk_observation(panel,uid,since) VALUES(?,?,?)",
-      ).run(panel.id, uid, now);
-  }
   db.prepare(
     "INSERT INTO risks VALUES(?,?,?,?,?,?) ON CONFLICT(panel,uid) DO UPDATE SET active=excluded.active,started=excluded.started,updated=excluded.updated,reasons=excluded.reasons",
   ).run(
