@@ -15,7 +15,7 @@ fetch("/api/setup/status", { cache: "no-store" })
       : "请输入账号密码。登录后才能访问后台。";
     document.querySelector("#confirmField").hidden = !setup;
     form.elements.confirmPassword.required = setup;
-    form.elements.password.minLength = setup ? 12 : 1;
+    form.elements.password.minLength = 1;
     submit.textContent = setup ? "保存并进入后台" : "登录";
     submit.disabled = false;
   })

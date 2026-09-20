@@ -821,8 +821,8 @@ $("#clearVisits").onclick = () => {
   ask(
     "清空访问历史",
     "确认清空此面板全部访问历史？不删除可疑用户和评估历史。",
-    [],
-    () => api(url, { confirm: true }),
+    [pwd],
+    (b) => api(url, b),
   );
 };
 $("#clearRiskHistory").onclick = () => {
@@ -830,8 +830,8 @@ $("#clearRiskHistory").onclick = () => {
   const url = endpoint("risk-history/delete");
   ask(
     "删除全部风险评估历史",
-    "不改变当前风险状态。请输入：删除风险评估历史",
-    [{ name: "confirm", label: "确认文字" }, pwd],
+    "不改变当前风险状态。请输入当前登录密码确认删除。",
+    [pwd],
     (b) => api(url, { ...b, all: true }),
   );
 };
@@ -840,8 +840,8 @@ $("#deletePanel").onclick = () => {
   const url = endpoint("delete");
   ask(
     "删除整个面板",
-    "将删除该面板的所有数据、风险和配置。请输入面板名称：" + panel().name,
-    [{ name: "confirm", label: "面板名称" }, pwd],
+    "将删除该面板的所有数据、风险和配置。请输入当前登录密码确认删除。",
+    [pwd],
     async (b) => {
       await api(url, b);
       await loadPanels();

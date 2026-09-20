@@ -53,8 +53,8 @@ async function verify(password, stored) {
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 function password(p, confirm) {
-  if (typeof p !== "string" || p.length < 12 || p.length > 256)
-    throw Error("密码须为12～256位");
+  if (typeof p !== "string" || p.length < 1 || p.length > 256)
+    throw Error("密码不能为空，最多256位");
   if (p !== confirm) throw Error("两次密码不一致");
 }
 const fail = (status, message) => {
@@ -664,7 +664,7 @@ export function createApp({
         }
         if (action === "delete" && method === "POST") {
           await confirm();
-          if (b.confirm !== panel.name) fail(400, "请输入面板名称确认删除");
+
           db.prepare("DELETE FROM panels WHERE id=?").run(id);
           return json(res, 200, { ok: true });
         }
@@ -844,7 +844,6 @@ export function createApp({
         if (action === "risk-history/delete" && method === "POST") {
           await confirm();
           if (b.all === true) {
-            if (b.confirm !== "删除风险评估历史") fail(400, "确认文字错误");
             db.prepare("DELETE FROM risk_history WHERE panel=?").run(id);
           } else
             db.prepare("DELETE FROM risk_history WHERE panel=? AND id=?").run(
@@ -854,7 +853,7 @@ export function createApp({
           return json(res, 200, { ok: true });
         }
         if (action === "history/clear" && method === "POST") {
-          if (b.confirm !== true) fail(400, "请确认清空访问历史");
+          await confirm();
           transaction(db, () => {
             db.prepare("DELETE FROM visits WHERE panel=?").run(id);
             db.prepare("UPDATE panels SET cleared_at=? WHERE id=?").run(
@@ -921,7 +920,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.7.2 ready");
+  console.log("Subscription Watch v3.7.3 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

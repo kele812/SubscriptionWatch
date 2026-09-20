@@ -266,7 +266,7 @@ test("取消后旧请求不再触发，新增异常再次触发；清空访问�
     const histories = c.app.db
       .prepare("SELECT count(*) n FROM risk_history")
       .get().n;
-    await c.api(`/api/panels/${p.id}/history/clear`, { confirm: true }, auth);
+    await c.api(`/api/panels/${p.id}/history/clear`, { password }, auth);
     assert.equal(
       (await c.api(`/api/panels/${p.id}/events`, undefined, auth)).total,
       0,
@@ -857,7 +857,7 @@ test("白名单精确核对、只显示主动添加用户、邮箱变化撤销�
     );
   }));
 
-test("定时清理只删到期访问记录，手动清理只需确认按钮", () =>
+test("定时清理只删到期访问记录，手动清理需登录密码", () =>
   fixture(async (c) => {
     const auth = await setup(c),
       p = await panel(c, auth),
@@ -880,7 +880,7 @@ test("定时清理只删到期访问记录，手动清理只需确认按钮", ()
       (await c.request(url + "/history/clear", {}, auth)).status,
       400,
     );
-    await c.api(url + "/history/clear", { confirm: true }, auth);
+    await c.api(url + "/history/clear", { password }, auth);
     assert.equal(
       (await c.api(url + "/risk-history", undefined, auth)).rows.length,
       history,
@@ -1572,4 +1572,89 @@ test("3.7.2取消观察期，旧观察设置不阻止下一次领取，规则关
       (await c.api(url + "/risks", undefined, auth)).rows[0].level,
       "suspicious",
     );
+  }));
+
+test("3.7.3允许短密码，仍拒绝空密码、超长密码和确认不一致", () =>
+  fixture(async (c) => {
+    for (const [pwd, confirm] of [
+      ["", ""],
+      ["1", "2"],
+      ["a".repeat(257), "a".repeat(257)],
+    ]) {
+      assert.equal(
+        (
+          await c.request("/api/setup", {
+            username: "shortuser",
+            password: pwd,
+            confirmPassword: confirm,
+          })
+        ).status,
+        400,
+      );
+    }
+    const created = await c.request("/api/setup", {
+      username: "shortuser",
+      password: "1",
+      confirmPassword: "1",
+    });
+    assert.equal(created.status, 200);
+    const auth = cookie(created);
+    assert.equal(
+      (await c.request("/api/login", { username: "shortuser", password: "1" }))
+        .status,
+      200,
+    );
+    const stored = c.app.db
+      .prepare("SELECT password_hash FROM accounts")
+      .get().password_hash;
+    assert.notEqual(stored, "1");
+    assert.ok(stored.includes(":"));
+    await c.api(
+      "/api/password",
+      { currentPassword: "1", newPassword: "2", confirmPassword: "2" },
+      auth,
+    );
+    assert.equal((await c.request("/api/me", undefined, auth)).status, 401);
+    assert.equal(
+      (await c.request("/api/login", { username: "shortuser", password: "2" }))
+        .status,
+      200,
+    );
+  }));
+
+test("3.7.3删除操作仅验证密码，不要求确认文字，错误密码不删除", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth),
+      url = `/api/panels/${p.id}`;
+    await send(c, p, [event({ ua: "Browser" })]);
+    for (const [action, extra] of [
+      ["history/clear", {}],
+      ["risk-history/delete", { all: true }],
+      ["risk-delete", { uid: 1 }],
+      ["delete", {}],
+    ]) {
+      assert.equal(
+        (
+          await c.request(
+            url + "/" + action,
+            { ...extra, password: "wrong" },
+            auth,
+          )
+        ).status,
+        400,
+      );
+    }
+    assert.equal((await c.api(url + "/events", undefined, auth)).total, 1);
+    await c.api(url + "/history/clear", { password }, auth);
+    assert.equal((await c.api(url + "/events", undefined, auth)).total, 0);
+    assert.equal((await c.api(url + "/risks", undefined, auth)).rows.length, 1);
+    await c.api(url + "/risk-history/delete", { password, all: true }, auth);
+    assert.equal(
+      (await c.api(url + "/risk-history", undefined, auth)).rows.length,
+      0,
+    );
+    await c.api(url + "/risk-delete", { password, uid: 1 }, auth);
+    await c.api(url + "/delete", { password }, auth);
+    assert.equal(c.app.db.prepare("SELECT count(*) n FROM panels").get().n, 0);
   }));
