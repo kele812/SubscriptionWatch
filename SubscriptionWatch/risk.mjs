@@ -2,7 +2,7 @@ import { assess } from "./assessment.mjs";
 export const riskLevel = (reasons) =>
   reasons.some(
     (r) =>
-      ["multi", "comboChina", "comboCloud"].includes(r.code) ||
+      ["ua", "multi", "comboChina", "comboCloud"].includes(r.code) ||
       (r.ruleVersion !== "3.7" && ["china", "datacenter"].includes(r.code)),
   )
     ? "high"
@@ -23,7 +23,13 @@ export function evaluate(db, panel, uid, now = Date.now(), geo) {
   const old = db
     .prepare("SELECT * FROM risks WHERE panel=? AND uid=?")
     .get(panel.id, uid);
-  const reasons = assess(db, panel, subject, now, geo);
+  const current = assess(db, panel, subject, now, geo);
+  // Keep triggered reasons until explicit handling; expiry only affects live checks.
+  const saved = old?.active && !subject.white ? JSON.parse(old.reasons) : [];
+  const reasons = [
+    ...current,
+    ...saved.filter((r) => !current.some((x) => x.code === r.code)),
+  ];
   const active = Number(reasons.length > 0),
     previous = old ? JSON.parse(old.reasons) : [],
     changed =
@@ -33,7 +39,7 @@ export function evaluate(db, panel, uid, now = Date.now(), geo) {
         JSON.stringify(reasons[0]?.ruleSnapshot);
   if (!active && !old) return;
   if (!active && old && !old.active) return;
-  const high = active && riskLevel(reasons) === "high";
+  const high = riskLevel(current) === "high";
   if (
     db
       .prepare(
@@ -97,6 +103,11 @@ export function evaluate(db, panel, uid, now = Date.now(), geo) {
       active &&
       panel.notify &&
       (!old?.active ||
+        db
+          .prepare(
+            "SELECT 1 FROM outbox WHERE panel=? AND uid=? AND COALESCE(json_extract(payload,'$.kind'),'risk')='risk'",
+          )
+          .get(panel.id, uid) ||
         { none: 0, low: 1, medium: 2, high: 3 }[riskLevel(reasons)] >
           { none: 0, low: 1, medium: 2, high: 3 }[riskLevel(previous)])
     ) {

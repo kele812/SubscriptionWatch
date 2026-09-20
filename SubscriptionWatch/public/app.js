@@ -169,6 +169,7 @@ function detail(data) {
         for (const group of stats.exclusions) {
           const line = document.createElement("p");
           line.textContent = `不计入：${group.reason}，涉及 ${group.ipCount} 个 IP、${group.requests} 次请求。IP：${group.ips.join("、")}${group.ipCount > group.ips.length ? "（仅展示前100个）" : ""}`;
+          line.className = "evidence-exempt";
           card.append(line);
         }
         const note = document.createElement("p");
@@ -184,7 +185,7 @@ function detail(data) {
         `规则版本：${reason.规则版本} ${reason.附加条件}`,
         `实际 ${reason.实际数量} / 阈值 ${reason.阈值} · 窗口 ${reason.窗口分钟} 分钟`,
         `${reason.窗口开始} 至 ${reason.窗口结束}`,
-        `预计条件到期：${reason.预计条件到期} · ${reason.证据说明}`,
+        `原触发条件预计到期（不自动解除风险）：${reason.预计条件到期} · ${reason.证据说明}`,
       ]) {
         const line = document.createElement("p");
         line.textContent = text;
@@ -198,6 +199,7 @@ function detail(data) {
       for (const hit of reason.访问证据) {
         const line = document.createElement("div");
         line.className = "evidence-hit";
+        if (hit.计入 === false) line.className += " evidence-exempt";
         for (const text of [
           `${hit.时间} · ${hit.IP} · ${hit.计入 === true ? "参与触发" : hit.计入 === false ? "不计入：" + hit.排除原因 : "历史证据（未保存计入状态）"}${hit.自有节点 === "是" ? " · 自有节点" : ""}`,
           hit.归属地,
@@ -990,7 +992,7 @@ function updateRuleConditions(dirty = true) {
   const items = [
     [
       "uaEnabled",
-      "最近" + v("uaHours") + "小时出现不匹配允许关键词或空UA，标记低风险",
+      "最近" + v("uaHours") + "小时出现不匹配允许关键词或空UA，标记高风险",
     ],
     [
       "ipEnabled",
@@ -998,7 +1000,7 @@ function updateRuleConditions(dirty = true) {
         v("ipHours") +
         "小时达到" +
         v("ipLimit") +
-        "个不同IP，标记中风险；自有节点和豁免请求不计入",
+        "个不同IP，标记中风险；自有节点、Cloudflare 节点和豁免请求不计入",
     ],
     [
       "rateEnabled",

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.7.0-evidence2" />
+    <link rel="stylesheet" href="/style.css?v=3.7.0-risk3" />
   </head>
   <body>
     <div id="app" hidden>
@@ -129,7 +129,7 @@
               2xx的请求；失败和未知状态不参与共享判断。共7条规则，任一触发即标记，取最高风险等级。以下阈值可分别调整。
             </p>
             <fieldset class="rule-card">
-              <legend>01 · 使用非指定客户端获取订阅 · 低风险</legend>
+              <legend>01 · 使用非指定客户端获取订阅 · 高风险</legend>
               <label
                 ><input name="uaEnabled" type="checkbox" />启用 UA
                 允许名单</label
@@ -140,7 +140,7 @@
                 ></textarea>
               </label>
               <p class="rule-help">
-                UA是客户端获取订阅时发送的身份文字。每行填写一个关键词，原始UA包含任意一个关键词即匹配，忽略大小写，不使用正则表达式。例如shadowrocket可匹配Shadowrocket/3445。未匹配或UA为空时触发UA风险，单独触发为低风险，不会直接阻止订阅；其他风险规则仍独立判断。UA可以伪造或自定义，匹配不代表身份可信。常见关键词可按实际访问记录增删。
+                UA是客户端获取订阅时发送的身份文字。每行填写一个关键词，原始UA包含任意一个关键词即匹配，忽略大小写，不使用正则表达式。例如shadowrocket可匹配Shadowrocket/3445。未匹配或UA为空时触发UA风险，单独触发为高风险，不会直接阻止订阅；其他风险规则仍独立判断。UA可以伪造或自定义，匹配不代表身份可信。常见关键词可按实际访问记录增删。
               </p>
               <button type="button" id="addCommonUa">补充常见关键词</button>
               <label
@@ -152,7 +152,7 @@
                   required
               /></label>
               <p class="rule-help">
-                只检查同一用户最近设置的小时数内的UA，范围随当前时间向前滚动，不按整点清零。例如设为24小时，昨天15点的一次不匹配UA会参与评估到今天15点；此后若没有新的异常UA，这条风险原因自动解除，评估历史仍保留。期间正常UA访问不会抵消异常记录；其他风险原因可能继续生效。允许设置1～168小时。
+                只检查同一用户最近设置的小时数内的UA，范围随当前时间向前滚动，不按整点清零。例如设为24小时，昨天15点的一次不匹配UA会参与评估到今天15点；此后若没有新的异常UA，这次请求不再参与实时判断，但已标记风险不会自动降级或解除，需手动处理。期间正常UA访问不会抵消异常记录；其他风险原因可能继续生效。允许设置1～168小时。
               </p>
             </fieldset>
             <fieldset class="rule-card">
@@ -214,7 +214,7 @@
               </div>
             </fieldset>
             <fieldset class="rule-card">
-              <legend>04 · 短时间内多个国内 IP 获取订阅 · 中风险</legend>
+              <legend>04 · 短时间内多个中国大陆 IP 获取订阅 · 中风险</legend>
               <label
                 ><input
                   name="chinaEnabled"
@@ -223,7 +223,7 @@
               >
               <p class="rule-help">
                 仅统计成功获取订阅（HTTP
-                2xx）的同一用户使用的不同中国大陆IP。例如10分钟内出现3个不同国内IP，标记为中风险；同一个国内IP重复更新不增加IP数量。自有节点、IP白名单和其他已启用的豁免不计入。需要安装IP数据库；单项触发不自动封禁，组合升级高风险后仍受封禁开关和观察期控制。
+                2xx）的同一用户使用的不同中国大陆IP。例如60分钟内出现3个不同中国大陆IP，标记为中风险；同一个国内IP重复更新不增加IP数量。自有节点、IP白名单和其他已启用的豁免不计入。需要安装IP数据库；单项触发不自动封禁，组合升级高风险后仍受封禁开关和观察期控制。
               </p>
               <div class="form-grid">
                 <label
@@ -377,7 +377,7 @@
                 ></textarea>
               </label>
               <p>
-                自有节点不计入普通IP数量、国内IP、云服务器IP和跨国家规则；仍检查UA、请求频率及IP与UA双条件。组合升级时不计入国内或云服务器IP数量。
+                自有节点不计入普通IP数量、国内IP、云服务器IP和跨国家规则；仍检查UA、请求频率及IP与UA双条件。组合升级时不计入国内或云服务器IP数量。普通多IP规则始终排除Cloudflare节点，不受下方全局豁免开关影响。
               </p>
               <label
                 ><input name="cloudflareExempt" type="checkbox" />不检查来自
@@ -404,7 +404,7 @@
           <form id="banForm" class="settings-form">
             <h2>高风险自动封禁 Xboard 账号</h2>
             <p>
-              默认关闭。开启后对当前及后续高风险用户执行账号封禁，风险解除不会自动解封。封禁会修改Xboard用户状态；管理员和员工账号不会自动封禁。
+              默认关闭。开启后仅对实时判断仍满足高风险的用户执行账号封禁；保留的过期风险标记不会单独触发封禁。封禁会修改Xboard用户状态；管理员和员工账号不会自动封禁。
             </p>
             <label
               ><input name="enabled" type="checkbox" />启用高风险自动封禁</label
@@ -422,7 +422,7 @@
                 required
             /></label>
             <p>
-              默认30分钟。降级或解除后重新计时；保存封禁设置会重新开始观察。风险未持续到观察期不会封禁。
+              默认30分钟。实时高风险条件消失后重新计时，已标记风险仍保留；保存封禁设置会重新开始观察。实时高风险未持续到观察期不会封禁。
             </p>
             <button>保存封禁设置</button>
             <p id="banStatus"></p>
@@ -601,6 +601,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.7.0-evidence2"></script>
+    <script src="/app.js?v=3.7.0-risk3"></script>
   </body>
 </html>

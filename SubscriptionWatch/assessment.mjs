@@ -71,6 +71,8 @@ export function assess(db, panel, subject, now, geo) {
     const selected = new Set(rows);
     const exclusion = (e) => {
       if (exemption(e)) return exemption(e);
+      if (code === "ip" && /\bcloudflare\b/i.test(e.geo.organization || ""))
+        return "Cloudflare 节点";
       if (selected.has(e)) return "";
       if (code !== "ua" && !(e.status >= 200 && e.status < 300))
         return "请求未成功或缺少响应状态";
@@ -192,7 +194,9 @@ export function assess(db, panel, subject, now, geo) {
       r.ipEnabled,
       r.ipHours * 60,
       r.ipLimit,
-      (e) => !r.ownedIps.includes(e.ip),
+      (e) =>
+        !r.ownedIps.includes(e.ip) &&
+        !/\bcloudflare\b/i.test(e.geo.organization || ""),
       "多个 IP 获取同一订阅",
     ],
     [
@@ -201,7 +205,7 @@ export function assess(db, panel, subject, now, geo) {
       r.chinaMinutes,
       r.chinaLimit,
       china,
-      "短时间内多个国内 IP 获取订阅",
+      "短时间内多个中国大陆 IP 获取订阅",
     ],
     [
       "datacenter",

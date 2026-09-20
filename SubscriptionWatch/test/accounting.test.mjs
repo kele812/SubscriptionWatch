@@ -2,6 +2,39 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { assess } from "../assessment.mjs";
 import { defaults } from "../model.mjs";
+import { riskLevel } from "../risk.mjs";
+
+test("UA高风险、中国大陆默认60分钟、CF在普通IP规则中独立排除", () => {
+  assert.equal(defaults.chinaMinutes, 60);
+  assert.equal(riskLevel([{ code: "ua", ruleVersion: "3.7" }]), "high");
+  const now = Date.now();
+  const rows = [1, 2, 3, 4, 5, 6].map((n) => ({
+    ip: `192.0.2.${n}`,
+    ua: "NetFlow",
+    status: 200,
+    ts: now - 1000,
+  }));
+  const db = { prepare: () => ({ all: () => rows }) };
+  const panel = {
+    id: 1,
+    rules: JSON.stringify({ ...defaults, cloudflareExempt: false }),
+  };
+  const geo = {
+    lookup: (ip) => ({
+      countryCode: "CN",
+      organization: ip.endsWith(".6") ? "Cloudflare, Inc." : "ISP",
+    }),
+  };
+  const reason = assess(db, panel, { uid: 1, dismissed: 0 }, now, geo).find(
+    (r) => r.code === "ip",
+  );
+  assert.equal(reason.count, 5);
+  assert.equal(reason.accounting.totalIps, 6);
+  assert.equal(
+    reason.evidence.find((e) => e.ip.endsWith(".6")).exclusion,
+    "Cloudflare 节点",
+  );
+});
 
 test("自有节点排除且保存所有排除证据；同IP不同UA只计一个IP", () => {
   const now = Date.now();

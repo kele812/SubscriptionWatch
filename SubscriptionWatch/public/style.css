@@ -873,3 +873,7 @@ dialog::backdrop {
   color: #ff707e;
   font-weight: 700;
 }
+.evidence-exempt,
+.evidence-exempt p {
+  color: #6ee7a0;
+}

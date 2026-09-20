@@ -71,11 +71,18 @@ test("详情不重复展示；IP规则只标红参与IP，UA规则只标红异�
   vm.runInContext("detail(input)", context);
   let elements = flatten(nodes["#detailEvidence"]);
   assert.equal(
-    elements.filter((e) => e.className === "evidence-hit").length,
+    elements.filter((e) => e.className.includes("evidence-hit")).length,
     2,
   );
   let red = elements.filter((e) => e.className === "evidence-trigger");
   assert.equal(red.length, 1);
+  assert.ok(
+    elements.some(
+      (e) =>
+        e.className.includes("evidence-exempt") &&
+        e.children.some((p) => p.textContent.includes("不计入：自有节点")),
+    ),
+  );
   assert.ok(red[0].textContent.includes("192.0.2.1"));
   assert.ok(elements.some((e) => e.textContent.includes("最近 24 小时")));
   reason.代码 = "ua";

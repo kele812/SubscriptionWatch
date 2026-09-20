@@ -37,7 +37,7 @@ export const defaults = {
   rateMinutes: 60,
   rateLimit: 5,
   chinaEnabled: true,
-  chinaMinutes: 10,
+  chinaMinutes: 60,
   chinaLimit: 3,
   dcEnabled: true,
   dcMinutes: 10,

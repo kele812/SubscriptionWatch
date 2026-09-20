@@ -350,10 +350,10 @@ test("取消后旧请求不再触发，新增异常再次触发；清空访问�
     );
     assert.equal(
       (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      0,
+      1,
     );
     assert.ok(
-      c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n >
+      c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n ===
         histories,
     );
     await c.api(`/api/panels/${p.id}/risk-delete`, { password, uid: 1 }, auth);
@@ -373,7 +373,33 @@ test("取消后旧请求不再触发，新增异常再次触发；清空访问�
     );
   }));
 
-test("频率规则在边界到期，合法UA大小写匹配、规则修改和CSV转义", () =>
+test("UA高风险过期后保留标记及重启状态，但不再具备自动封禁资格", () =>
+  fixture(async (c) => {
+    let auth = await setup(c),
+      p = await panel(c, auth);
+    await send(c, p, [event({ ua: "UnknownClient" })]);
+    const stored = c.app.db
+      .prepare("SELECT * FROM panels WHERE id=?")
+      .get(p.id);
+    const future = Date.now() + 25 * 3600000;
+    assert.ok(c.app.bans.eligible(stored, 1));
+    assert.equal(c.app.bans.eligible(stored, 1, future), null);
+    let result = (await c.api(`/api/panels/${p.id}/risks`, undefined, auth))
+      .rows[0];
+    assert.equal(result.level, "high");
+    await c.restart();
+    auth = cookie(await c.request("/api/login", user));
+    result = (await c.api(`/api/panels/${p.id}/risks`, undefined, auth))
+      .rows[0];
+    assert.equal(result.level, "high");
+    await c.api(`/api/panels/${p.id}/resolve`, { uid: 1 }, auth);
+    assert.equal(
+      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
+      0,
+    );
+  }));
+
+test("频率条件到期仍保留风险，合法UA大小写匹配、规则修改和CSV转义", () =>
   fixture(async (c) => {
     const auth = await setup(c),
       p = await panel(c, auth);
@@ -407,7 +433,7 @@ test("频率规则在边界到期，合法UA大小写匹配、规则修改和CSV
     );
     assert.equal(
       (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      0,
+      1,
     );
     const csv = await (
       await c.request(`/api/panels/${p.id}/export`, undefined, auth)
@@ -970,7 +996,7 @@ test("白名单精确核对、只显示主动添加用户、邮箱变化撤销�
     );
   }));
 
-test("三级风险、中国IP和云组织规则、IP及Cloudflare请求豁免、到期降级", () =>
+test("三级风险、中国IP和云组织规则、IP及Cloudflare请求豁免、到期保留风险", () =>
   fixture(async (c) => {
     const auth = await setup(c),
       p = await panel(c, auth),
@@ -986,13 +1012,13 @@ test("三级风险、中国IP和云组织规则、IP及Cloudflare请求豁免、
     const rows = async () =>
       (await c.api(url + "/risks", undefined, auth)).rows;
     await send(c, p, [event({ ua: "browser" })]);
-    assert.equal((await rows())[0].level, "low");
+    assert.equal((await rows())[0].level, "high");
     await send(
       c,
       p,
       Array.from({ length: 4 }, () => event({ ip: "4.0.0.1" })),
     );
-    assert.equal((await rows())[0].level, "medium");
+    assert.equal((await rows()).find((x) => x.uid === 1).level, "high");
     await send(c, p, [event({ ip: "1.1.1.2" }), event({ ip: "1.1.1.3" })]);
     assert.equal((await rows())[0].level, "high");
     await send(c, p, [
@@ -1008,18 +1034,15 @@ test("三级风险、中国IP和云组织规则、IP及Cloudflare请求豁免、
       ipWhitelist: ["2.0.0.1", "2.0.0.2", "2.0.0.3"],
     };
     await c.api(url + "/settings", { name: "test", notify: true, rules }, auth);
-    assert.deepEqual(
-      (await rows()).map((x) => x.uid),
-      [1],
-    );
+    assert.deepEqual((await rows()).map((x) => x.uid).sort(), [1, 2, 3]);
     assert.equal((await c.api(url + "/events", undefined, auth)).total, 11);
     const stored = c.app.db
       .prepare("SELECT * FROM panels WHERE id=?")
       .get(p.id);
     evaluate(c.app.db, stored, 1, Date.now() + 11 * 60000, c.app.geo);
-    assert.equal((await rows())[0].level, "medium");
+    assert.equal((await rows()).find((x) => x.uid === 1).level, "high");
     await send(c, p, [event({ user_id: 3, ip: "4.0.0.1", ua: "browser" })]);
-    assert.equal((await rows()).find((x) => x.uid === 3).level, "low");
+    assert.equal((await rows()).find((x) => x.uid === 3).level, "high");
   }));
 
 test("定时清理只删到期访问记录，手动清理只需确认按钮", () =>
@@ -1317,14 +1340,14 @@ test("自有节点排除地域组织计数，但UA与频率照常评估；证据
       ips.map((ip) => event({ ip, ua: "Browser" })),
     );
     let row = (await c.api(url + "/risks", undefined, auth)).rows[0];
-    assert.equal(row.level, "low");
+    assert.equal(row.level, "high");
     assert.equal(row.reasons[0].evidence[0].owned, true);
     assert.equal(row.reasons[0].evidence[0].geo.organization, "Tencent Cloud");
     assert.equal(row.reasons[0].evidence[0].ua, "Browser");
     await send(c, p, [event(), event()]);
     assert.equal(
       (await c.api(url + "/risks", undefined, auth)).rows[0].level,
-      "low",
+      "high",
     );
     c.app.geo.lookup = (ip) => ({
       countryCode: ip.startsWith("4.") ? "US" : "CN",
@@ -1333,7 +1356,7 @@ test("自有节点排除地域组织计数，但UA与频率照常评估；证据
     });
     await send(c, p, [event({ ip: "4.0.0.1" }), event({ ip: "4.0.0.1" })]);
     row = (await c.api(url + "/risks", undefined, auth)).rows[0];
-    assert.equal(row.level, "medium");
+    assert.equal(row.level, "high");
     assert.equal(row.reasons.find((x) => x.code === "rate").threshold, 5);
     assert.equal(row.reasons.find((x) => x.code === "rate").windowMinutes, 60);
     assert.equal(
