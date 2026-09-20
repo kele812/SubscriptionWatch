@@ -1,4 +1,4 @@
-# SubscriptionWatch · 后台 v3.7.3
+# SubscriptionWatch · 后台 v3.8.0
 
 ## 上传插件
 
@@ -34,3 +34,5 @@ git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele
 2. 为网站申请 SSL，启用 HTTPS。
 3. 添加反向代理，目标地址填 `http://127.0.0.1:18080`，关闭代理缓存。
 4. 浏览器打开 `https://你的域名`，首次访问创建账号密码，再添加 XB 面板并配置插件。
+
+代理访问记录还需在代理节点部署配套程序，见 [节点部署说明](node-access/README.md)。

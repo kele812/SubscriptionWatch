@@ -1,3 +1,12 @@
+import {
+  initDestinations,
+  cleanDestinations,
+  createDestinationNode,
+  setDestinationUser,
+  destinationStatus,
+  destinationRows,
+  receiveDestinations,
+} from "./destinations.mjs";
 import { migrate371 } from "./migrate371.mjs";
 import { assess } from "./assessment.mjs";
 import http from "node:http";
@@ -97,12 +106,13 @@ export function createApp({
       tg = new Telegram({ db, encrypt, decrypt, geo, fetcher });
       bans = new AccountBan({ db, encrypt, decrypt, geo, fetcher });
       migrate371(db);
+      initDestinations(db);
       // Verify restored encrypted credentials before accepting the replacement.
       if (validate) {
         try {
           for (const row of db
             .prepare(
-              "SELECT secret value FROM panels UNION ALL SELECT token value FROM telegram WHERE token IS NOT NULL",
+              "SELECT secret value FROM panels UNION ALL SELECT token value FROM telegram WHERE token IS NOT NULL UNION ALL SELECT secret value FROM destination_nodes",
             )
             .all())
             decrypt(row.value);
@@ -198,6 +208,7 @@ export function createApp({
   const maintenance = () => {
     if (restoring) return;
     const now = Date.now();
+    cleanDestinations(db, now);
     for (const [k, v] of sessions) if (v.until < now) sessions.delete(k);
     for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
     transaction(db, () => {
@@ -314,6 +325,19 @@ export function createApp({
         res.writeHead(302, { Location: "/" });
         return res.end();
       }
+      if (
+        method === "POST" &&
+        ["/api/node-access/policy", "/api/node-access/events"].includes(route)
+      )
+        return await receiveDestinations(req, res, {
+          db,
+          decrypt,
+          route,
+          freeBytes: () => {
+            const s = statfsSync(dataDir);
+            return s.bavail * s.bsize;
+          },
+        });
       if (method === "POST" && route === "/api/collector/control")
         return await bans.receive(req, res);
       if (method === "POST" && route === "/api/collector/events")
@@ -616,6 +640,33 @@ export function createApp({
           if (!(await verify(b.password, account.password_hash)))
             fail(400, "当前账号密码错误");
         };
+        if (action === "destinations" && method === "GET")
+          return json(res, 200, destinationRows(db, id, u.searchParams));
+        if (action === "destinations/settings" && method === "GET")
+          return json(res, 200, destinationStatus(db, id));
+        if (action === "destinations/user" && method === "POST") {
+          setDestinationUser(db, id, b);
+          return json(res, 200, { ok: true });
+        }
+        if (action === "destinations/node" && method === "POST")
+          return json(res, 200, createDestinationNode(db, id, b.name, encrypt));
+        if (action === "destinations/node/remove" && method === "POST") {
+          await confirm();
+          db.prepare(
+            "DELETE FROM destination_nodes WHERE panel=? AND id=?",
+          ).run(id, Number(b.id) || 0);
+          return json(res, 200, { ok: true });
+        }
+        if (action === "destinations/clear" && method === "POST") {
+          await confirm();
+          transaction(db, () => {
+            db.prepare("DELETE FROM destinations WHERE panel=?").run(id);
+            db.prepare(
+              "UPDATE destination_users SET since=? WHERE panel=?",
+            ).run(Date.now(), id);
+          });
+          return json(res, 200, { ok: true });
+        }
         if (action === "key" && method === "POST")
           return json(res, 200, {
             publicId: panel.public_id,
@@ -920,7 +971,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.7.3 ready");
+  console.log("Subscription Watch v3.8.0 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

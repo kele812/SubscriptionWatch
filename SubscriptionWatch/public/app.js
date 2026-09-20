@@ -1,4 +1,6 @@
 const $ = (s) => document.querySelector(s);
+let destinationBefore = null,
+  destinationNext = null;
 let me,
   panels = [],
   panelId = 0,
@@ -407,6 +409,11 @@ $("#addPanel").onclick = () =>
   );
 $("#panelSelect").onchange = run(async () => {
   panelId = Number($("#panelSelect").value);
+  destinationBefore = null;
+  $("#destinationUserForm").reset();
+  $("#destinationFilters").reset();
+  $("#destinationNodeConfig").hidden = true;
+  $("#destinationNodeConfig").textContent = "";
   $("#tgForm").reset();
   $("#tgCode").textContent = "";
   $("#tgStatus").textContent = "正在读取当前面板机器人…";
@@ -454,6 +461,7 @@ async function refresh() {
         v.id !== tab ||
         (!panelId &&
           [
+            "destinations",
             "history",
             "risk",
             "riskHistory",
@@ -476,6 +484,87 @@ async function refresh() {
         `采集状态：${s.panel.health} · 最近上报：${format(s.panel.last_seen)} · 待发送 ${s.panel.pending} · 丢弃 ${s.panel.dropped} · 过期 ${s.panel.expired} · 上报失败 ${s.panel.failures ?? "旧插件未提供"} · 插件 ${s.panel.version || "未连接"}（计数为最近一次上报快照，离线期间未知；Redis计数可能过期归零）`;
     }
     let rows = [];
+    if (panelId && tab === "destinations") {
+      const state = await read(endpoint("destinations/settings"));
+      table(
+        "#destinationUsers",
+        ["用户ID", "邮箱", "开始时间", "操作"],
+        state.users.map((x) => [
+          x.uid,
+          x.email +
+            (x.email !== x.current_email ? "（用户资料已变化，采集暂停）" : ""),
+          format(x.since),
+          button("停止采集", async () => {
+            await api(endpoint("destinations/user"), {
+              uid: x.uid,
+              email: x.current_email || x.email,
+              enabled: false,
+            });
+            await refresh();
+          }),
+        ]),
+      );
+      table(
+        "#destinationNodes",
+        [
+          "节点ID / 名称",
+          "最近上报",
+          "队列积压",
+          "节点丢弃",
+          "失败次数",
+          "拒收记录",
+          "操作",
+        ],
+        state.nodes.map((x) => [
+          x.id + " / " + x.name,
+          format(x.last_seen),
+          x.pending,
+          x.dropped,
+          x.failures,
+          x.rejected,
+          button("移除", () =>
+            ask(
+              "移除采集节点",
+              "该节点将不能再上报，已有代理访问记录也会删除。",
+              [pwd],
+              async (b) => {
+                await api(endpoint("destinations/node/remove"), {
+                  ...b,
+                  id: x.id,
+                });
+                await refresh();
+              },
+            ),
+          ),
+        ]),
+      );
+      const q = new URLSearchParams(new FormData($("#destinationFilters")));
+      if (destinationBefore) q.set("before", destinationBefore);
+      const d = await read(endpoint("destinations") + "?" + q);
+      destinationNext = d.next;
+      $("#destinationNext").disabled = !d.next;
+      table(
+        "#destinationTable",
+        [
+          "时间",
+          "用户ID / 邮箱",
+          "节点",
+          "目标域名或IP",
+          "端口",
+          "协议",
+          "来源IP",
+        ],
+        d.rows.map((x) => [
+          format(x.ts),
+          x.uid + " / " + x.email,
+          x.node_name,
+          x.host,
+          x.port,
+          x.network,
+          x.source,
+        ]),
+      );
+    }
     if (panelId && tab === "history") {
       const d = await read(endpoint("events") + "?" + query());
       rows = d.rows;
@@ -698,6 +787,59 @@ async function geoStatus() {
   $("#geoCheck").disabled = g.busy;
   $("#geoInstall").disabled = g.busy;
 }
+$("#destinationUserForm").onsubmit = run(async () => {
+  const b = Object.fromEntries(new FormData($("#destinationUserForm")));
+  await api(endpoint("destinations/user"), {
+    uid: Number(b.uid),
+    email: b.email.trim(),
+    enabled: true,
+  });
+  toast("已开启，节点通常在30秒内同步");
+  await refresh();
+});
+$("#addDestinationNode").onclick = () =>
+  ask(
+    "添加采集节点",
+    "每台采集节点使用独立密钥。",
+    [{ name: "name", label: "节点名称" }],
+    async (b) => {
+      const n = await api(endpoint("destinations/node"), b);
+      const box = $("#destinationNodeConfig");
+      box.hidden = false;
+      box.textContent =
+        "密钥仅显示一次，请保存到该节点config.yml的顶层：\nwatch_access:\n  url: " +
+        JSON.stringify(location.origin) +
+        "\n  node: " +
+        JSON.stringify(n.publicId) +
+        "\n  secret: " +
+        JSON.stringify(n.secret) +
+        "\n";
+      await refresh();
+    },
+  );
+$("#destinationFilters").onsubmit = run(async () => {
+  destinationBefore = null;
+  await refresh();
+});
+$("#destinationFirst").onclick = run(async () => {
+  destinationBefore = null;
+  await refresh();
+});
+$("#destinationNext").onclick = run(async () => {
+  destinationBefore = destinationNext;
+  await refresh();
+});
+$("#clearDestinations").onclick = () =>
+  ask(
+    "清空代理访问记录",
+    "只删除当前面板的代理访问记录，不删除订阅记录和风险评估。",
+    [pwd],
+    async (b) => {
+      await api(endpoint("destinations/clear"), b);
+      destinationBefore = null;
+      await refresh();
+    },
+  );
 $("#refresh").onclick = run(refresh);
 $("#filters").onsubmit = run(async () => {
   page = 1;

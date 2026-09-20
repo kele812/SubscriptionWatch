@@ -31,6 +31,7 @@ import { evaluate } from "../risk.mjs";
 import { assess } from "../assessment.mjs";
 import { GeoDatabase } from "../geo.mjs";
 import { restoreBackup } from "../restore.mjs";
+import { cleanDestinations } from "../destinations.mjs";
 const password = "my-test-password-123",
   user = {
     username: "owner",
@@ -1657,4 +1658,270 @@ test("3.7.3删除操作仅验证密码，不要求确认文字，错误密码不
     await c.api(url + "/risk-delete", { password, uid: 1 }, auth);
     await c.api(url + "/delete", { password }, auth);
     assert.equal(c.app.db.prepare("SELECT count(*) n FROM panels").get().n, 0);
+  }));
+
+async function nodeRequest(c, n, kind, b, override = {}) {
+  const route = "/api/node-access/" + kind,
+    raw = JSON.stringify({ schema: 1, ...b }),
+    stamp = String(Math.floor(Date.now() / 1000));
+  return fetch(c.base + route, {
+    method: "POST",
+    headers: {
+      "X-Watch-Node": n.publicId,
+      "X-Watch-Timestamp": stamp,
+      "X-Watch-Signature": createHmac("sha256", n.secret)
+        .update(route + "\n" + stamp + "\n" + raw)
+        .digest("hex"),
+      ...override,
+    },
+    body: raw,
+  });
+}
+
+test("3.8.0目标查询游标分页、精确地址索引和无效批次原子拒绝", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth),
+      base = `/api/panels/${p.id}/destinations`;
+    await send(c, p, [event()]);
+    const n = await c.api(base + "/node", { name: "node" }, auth);
+    await c.api(
+      base + "/user",
+      { uid: 1, email: "sample@example.com", enabled: true },
+      auth,
+    );
+    const policy = await (await nodeRequest(c, n, "policy", {})).json();
+    const events = Array.from({ length: 101 }, (_, i) => ({
+      id: "page-" + i,
+      uid: 1,
+      since: policy.users[0].since,
+      ts: Date.now(),
+      source: "1.2.3.4",
+      host: i % 2 ? "example.com" : "other.example.com",
+      port: 443,
+      network: "tcp",
+    }));
+    const metrics = { pending: 0, dropped: 0, failures: 0 };
+    assert.equal(
+      (await nodeRequest(c, n, "events", { events, metrics })).status,
+      422,
+    );
+    assert.equal(
+      (
+        await nodeRequest(c, n, "events", {
+          events: [
+            events[0],
+            { ...events[1], host: "https://bad.example/path" },
+          ],
+          metrics,
+        })
+      ).status,
+      422,
+    );
+    assert.equal((await c.api(base, undefined, auth)).rows.length, 0);
+    await nodeRequest(c, n, "events", {
+      events: events.slice(0, 100),
+      metrics,
+    });
+    await nodeRequest(c, n, "events", { events: events.slice(100), metrics });
+    const first = await c.api(base, undefined, auth),
+      second = await c.api(base + "?before=" + first.next, undefined, auth);
+    assert.equal(first.rows.length, 100);
+    assert.equal(second.rows.length, 1);
+    assert.equal(second.next, null);
+    assert.equal(
+      new Set([...first.rows, ...second.rows].map((x) => x.id)).size,
+      101,
+    );
+    const exact = await c.api(
+      base + "?host=EXAMPLE.COM&uid=1&node=" + n.id,
+      undefined,
+      auth,
+    );
+    assert.equal(exact.rows.length, 50);
+    assert.ok(exact.rows.every((x) => x.host === "example.com"));
+    assert.equal(
+      (await c.api(base + "?uid=2", undefined, auth)).rows.length,
+      0,
+    );
+  }));
+test("3.8.0指定用户目标采集：登录、ID邮箱核对、面板隔离、签名、去重、停止和重启", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth),
+      other = await panel(c, auth, "other"),
+      base = `/api/panels/${p.id}/destinations`;
+    assert.equal((await c.request(base, undefined)).status, 401);
+    const n = await c.api(base + "/node", { name: "SG" }, auth),
+      n2 = await c.api(
+        `/api/panels/${other.id}/destinations/node`,
+        { name: "US" },
+        auth,
+      );
+    assert.equal(
+      (
+        await c.request(
+          base + "/user",
+          { uid: 1, email: "sample@example.com", enabled: true },
+          auth,
+        )
+      ).status,
+      400,
+    );
+    await send(c, p, [event()]);
+    assert.equal(
+      (
+        await c.request(
+          base + "/user",
+          { uid: 1, email: "wrong@example.com", enabled: true },
+          auth,
+        )
+      ).status,
+      400,
+    );
+    await c.api(
+      base + "/user",
+      { uid: 1, email: "sample@example.com", enabled: true },
+      auth,
+    );
+    const policy = await (await nodeRequest(c, n, "policy", {})).json();
+    assert.equal(policy.users.length, 1);
+    assert.equal(policy.users[0].uid, 1);
+    assert.equal(
+      (await (await nodeRequest(c, n2, "policy", {})).json()).users.length,
+      0,
+    );
+    const e = {
+      id: "test-event-1",
+      uid: 1,
+      since: policy.users[0].since,
+      ts: Date.now(),
+      source: "1.2.3.4",
+      host: "example.com",
+      port: 443,
+      network: "tcp",
+    };
+    const payload = {
+      events: [e],
+      metrics: { pending: 0, dropped: 0, failures: 0 },
+    };
+    assert.equal(
+      (
+        await nodeRequest(c, n, "events", payload, {
+          "X-Watch-Signature": "0".repeat(64),
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (await (await nodeRequest(c, n, "events", payload)).json()).inserted,
+      1,
+    );
+    assert.equal(
+      (await (await nodeRequest(c, n, "events", payload)).json()).duplicates,
+      1,
+    );
+    assert.equal(
+      (await (await nodeRequest(c, n2, "events", payload)).json()).rejected,
+      1,
+    );
+    const records = await c.api(base, undefined, auth);
+    assert.equal(records.rows.length, 1);
+    assert.equal(records.rows[0].email, "sample@example.com");
+    await c.api(
+      base + "/user",
+      { uid: 1, email: "sample@example.com", enabled: false },
+      auth,
+    );
+    assert.equal(
+      (
+        await (
+          await nodeRequest(c, n, "events", {
+            ...payload,
+            events: [{ ...e, id: "after-stop" }],
+          })
+        ).json()
+      ).rejected,
+      1,
+    );
+    await c.restart();
+    const login = await c.request("/api/login", user),
+      again = cookie(login);
+    assert.equal((await c.api(base, undefined, again)).rows.length, 1);
+    assert.equal(
+      (await (await nodeRequest(c, n, "policy", {})).json()).users.length,
+      0,
+    );
+  }));
+test("3.8.0清理、删除密码、旧批次和用户资料变更防串号", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth),
+      base = `/api/panels/${p.id}/destinations`;
+    await send(c, p, [event()]);
+    const n = await c.api(base + "/node", { name: "node" }, auth);
+    await c.api(
+      base + "/user",
+      { uid: 1, email: "sample@example.com", enabled: true },
+      auth,
+    );
+    const policy = await (await nodeRequest(c, n, "policy", {})).json();
+    const e = {
+        id: "e1",
+        uid: 1,
+        since: policy.users[0].since,
+        ts: Date.now(),
+        source: "::1",
+        host: "2001:db8::1",
+        port: 53,
+        network: "udp",
+      },
+      b = { events: [e], metrics: { pending: 0, dropped: 0, failures: 0 } };
+    await nodeRequest(c, n, "events", b);
+    assert.equal(
+      (await c.request(base + "/clear", { password: "wrong" }, auth)).status,
+      400,
+    );
+    await c.api(base + "/clear", { password }, auth);
+    assert.equal(
+      (await (await nodeRequest(c, n, "events", b)).json()).rejected,
+      1,
+    );
+    assert.equal((await c.api(base, undefined, auth)).rows.length, 0);
+    const current = await (await nodeRequest(c, n, "policy", {})).json();
+    b.events = [
+      { ...e, id: "e2", since: current.users[0].since, ts: Date.now() },
+    ];
+    await nodeRequest(c, n, "events", b);
+    c.app.db
+      .prepare("UPDATE destinations SET ts=?")
+      .run(Date.now() - 4 * 86400000);
+    assert.equal((await c.api(base, undefined, auth)).rows.length, 0);
+    cleanDestinations(c.app.db);
+    assert.equal(
+      c.app.db.prepare("SELECT COUNT(*) n FROM destinations").get().n,
+      0,
+    );
+    await send(c, p, [event({ email: "new@example.com" })]);
+    assert.equal(
+      (await (await nodeRequest(c, n, "policy", {})).json()).users.length,
+      0,
+    );
+    assert.equal(
+      (await (await nodeRequest(c, n, "events", b)).json()).rejected,
+      1,
+    );
+    assert.equal(
+      (
+        await c.request(
+          base + "/node/remove",
+          { id: n.id, password: "wrong" },
+          auth,
+        )
+      ).status,
+      400,
+    );
+    await c.api(base + "/node/remove", { id: n.id, password }, auth);
+    assert.equal((await nodeRequest(c, n, "policy", {})).status, 401);
+    assert.equal(c.app.db.prepare("SELECT COUNT(*) n FROM visits").get().n, 2);
   }));
