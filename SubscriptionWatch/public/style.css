@@ -877,3 +877,8 @@ dialog::backdrop {
 .evidence-exempt p {
   color: #6ee7a0;
 }
+
+.risk-suspicious {
+  color: #ff707e;
+  border-color: #ff707e;
+}

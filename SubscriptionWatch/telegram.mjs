@@ -184,7 +184,7 @@ export class Telegram {
               (r) =>
                 `${levelLabel(r.level)} · ID ${r.uid} ${r.email}\n${r.reasons.map((x) => x.label + "：" + x.count).join("；")}`,
             )
-            .join("\n\n") || "当前无风险用户"),
+            .join("\n\n") || "当前无可疑用户"),
       );
       return;
     }

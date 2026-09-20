@@ -95,7 +95,7 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
     discarded = 0;
   try {
     transaction(db, () => {
-      const touched = new Set();
+      const touched = new Map();
       const receipt = db.prepare(
         "INSERT OR IGNORE INTO receipts VALUES(?,?,?)",
       );
@@ -136,7 +136,10 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           e.bytes,
         );
         sample.run(panel.id, e.user_id, e.ts, address, e.ua, e.status);
-        touched.add(e.user_id);
+        if (!touched.has(e.user_id)) touched.set(e.user_id, []);
+        touched
+          .get(e.user_id)
+          .push({ ts: e.ts, ip: address, ua: e.ua, status: e.status });
         inserted++;
       }
       db.prepare(
@@ -150,7 +153,8 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
         batch.metrics.failures ?? null,
         panel.id,
       );
-      for (const uid of touched) evaluate(db, panel, uid, now, geo);
+      for (const [uid, fresh] of touched)
+        evaluate(db, panel, uid, now, geo, fresh);
     });
   } catch {
     return reply(503, { error: "storage unavailable" });

@@ -1,83 +1,105 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { assess } from "../assessment.mjs";
-import { defaults } from "../model.mjs";
+import { defaults, validateRules } from "../model.mjs";
 import { riskLevel } from "../risk.mjs";
-
-test("UA高风险、中国大陆默认60分钟、CF在普通IP规则中独立排除", () => {
-  assert.equal(defaults.chinaMinutes, 60);
-  assert.equal(riskLevel([{ code: "ua", ruleVersion: "3.7" }]), "high");
-  const now = Date.now();
-  const rows = [1, 2, 3, 4, 5, 6].map((n) => ({
-    ip: `192.0.2.${n}`,
-    ua: "NetFlow",
-    status: 200,
-    ts: now - 1000,
-  }));
-  const db = { prepare: () => ({ all: () => rows }) };
-  const panel = {
-    id: 1,
-    rules: JSON.stringify({ ...defaults, cloudflareExempt: false }),
-  };
+const now = Date.now(),
+  row = (ip, ts = now - 1000, status = 200, ua = "NetFlow") => ({
+    ip,
+    ts,
+    status,
+    ua,
+  });
+function check(rows, fresh = [], rules = {}) {
+  const db = { prepare: () => ({ all: () => rows, get: () => undefined }) };
   const geo = {
     lookup: (ip) => ({
-      countryCode: "CN",
-      organization: ip.endsWith(".6") ? "Cloudflare, Inc." : "ISP",
+      countryCode: ip.startsWith("1.")
+        ? "CN"
+        : ip.startsWith("2.")
+          ? "HK"
+          : ip.startsWith("3.")
+            ? "US"
+            : undefined,
+      organization: ip.endsWith(".99")
+        ? "Cloudflare, Inc."
+        : ip.endsWith(".88")
+          ? "Amazon Inc."
+          : "ISP",
     }),
   };
-  const reason = assess(db, panel, { uid: 1, dismissed: 0 }, now, geo).find(
-    (r) => r.code === "ip",
+  return assess(
+    db,
+    { id: 1, rules: JSON.stringify({ ...defaults, ...rules }) },
+    { uid: 1, dismissed: 0 },
+    now,
+    geo,
+    fresh,
   );
-  assert.equal(reason.count, 5);
-  assert.equal(reason.accounting.totalIps, 6);
+}
+test("3.7.1地域规则严格超过3/10；重复IP不区分UA，CN与非CN独立", () => {
+  for (const [prefix, code] of [
+    ["1", "cn"],
+    ["2", "foreign"],
+  ]) {
+    const rows = [1, 2, 3].map((n) => row(`${prefix}.0.0.${n}`));
+    assert.equal(check(rows).length, 0);
+    rows.push(row(`${prefix}.0.0.1`, now - 1000, 200, "OtherUA"));
+    assert.equal(check(rows).length, 0);
+    rows.push(row(`${prefix}.0.0.4`));
+    assert.equal(check(rows).find((r) => r.code === code + "60").count, 4);
+    const long = Array.from({ length: 10 }, (_, n) =>
+      row(`${prefix}.0.1.${n + 1}`, now - 120 * 60000),
+    );
+    assert.equal(check(long).length, 0);
+    long.push(row(`${prefix}.0.1.11`, now - 120 * 60000));
+    assert.equal(check(long).find((r) => r.code === code + "720").count, 11);
+  }
   assert.equal(
-    reason.evidence.find((e) => e.ip.endsWith(".6")).exclusion,
-    "Cloudflare 节点",
+    check([row("1.0.0.1"), row("1.0.0.2"), row("2.0.0.1"), row("2.0.0.2")])
+      .length,
+    0,
   );
 });
-
-test("自有节点排除且保存所有排除证据；同IP不同UA只计一个IP", () => {
-  const now = Date.now();
-  const rows = ["1", "2", "3", "4", "5", "6", "7"].map((n) => ({
-    ts: now - 1000,
-    ip: `192.0.2.${n}`,
-    ua: "NetFlow/android",
-    status: 200,
-  }));
-  rows.push({ ...rows[0], ua: "NetFlow/windows" });
-  const db = { prepare: () => ({ all: () => rows }) };
-  const rules = {
-    ...defaults,
-    ownedIps: ["192.0.2.6"],
-    ipWhitelist: ["192.0.2.7"],
-    ipLimit: 5,
-  };
-  const panel = { id: 1, rules: JSON.stringify(rules) };
-  const subject = { uid: 1, dismissed: 0 };
-  const geo = { lookup: () => ({ countryCode: "CN" }) };
-  const result = assess(db, panel, subject, now, geo).find(
-    (r) => r.code === "ip",
-  );
-  assert.equal(result.count, 5);
-  assert.equal(result.accounting.totalIps, 7);
-  assert.equal(result.accounting.totalRequests, 8);
-  assert.equal(result.accounting.includedIps, 5);
+test("3.7.1失败请求、边界、未知归属、白名单和CF排除", () => {
+  const rows = [1, 2, 3].map((n) => row(`1.0.0.${n}`));
+  for (const extra of [
+    row("1.0.0.4", now - 60 * 60000),
+    row("1.0.0.4", now - 1000, 500),
+    row("9.0.0.4"),
+  ])
+    assert.ok(!check([...rows, extra]).some((r) => r.code === "cn60"));
   assert.equal(
-    result.evidence.find((e) => e.ip === "192.0.2.6").exclusion,
-    "自有节点",
+    check([...rows, row("1.0.0.99")], [], { cloudflareExempt: true }).length,
+    0,
   );
   assert.equal(
-    result.evidence.find((e) => e.ip === "192.0.2.7").included,
-    false,
+    check([...rows, row("1.0.0.4")], [], { ipWhitelist: ["1.0.0.4"] }).length,
+    0,
   );
-  panel.rules = JSON.stringify({
-    ...rules,
-    ownedIps: ["192.0.2.5", "192.0.2.6"],
-  });
-  assert.ok(!assess(db, panel, subject, now, geo).some((r) => r.code === "ip"));
-  assert.equal(result.count, 5, "原评估快照保持原样");
-  const rate = assess(db, panel, subject, now, geo).find(
-    (r) => r.code === "rate",
+  assert.equal(
+    check([...rows, row("1.0.0.99")]).find((r) => r.code === "cn60").count,
+    4,
   );
-  assert.equal(rate.accounting.mergedRequests, 0, "完整UA不同不合并");
+});
+test("3.7.1 UA与云规则仅处理新请求；无时间窗口、成功状态和豁免", () => {
+  const bad = row("3.0.0.1", now - 1000, 500, "");
+  assert.equal(check([bad]).length, 0);
+  assert.equal(check([], [bad])[0].code, "ua");
+  assert.equal(check([], [bad])[0].windowMinutes, null);
+  assert.equal(check([], [row("3.0.0.88")])[0].code, "cloud");
+  assert.equal(check([], [row("3.0.0.88", now - 1000, 500)]).length, 0);
+  assert.equal(check([], [bad], { ipWhitelist: [bad.ip] }).length, 0);
+  assert.equal(
+    check([], [row("3.0.0.99", now - 1000, 200, "bad")], {
+      cloudflareExempt: true,
+    }).length,
+    0,
+  );
+  assert.equal(riskLevel([{ code: "cloud" }]), "suspicious");
+  assert.equal(
+    validateRules({ ...defaults, ownedIps: ["1.1.1.1"], uaHours: 1 }).ownedIps,
+    undefined,
+  );
+  assert.equal(defaults.uaHours, undefined);
 });

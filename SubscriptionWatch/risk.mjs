@@ -1,21 +1,7 @@
 import { assess } from "./assessment.mjs";
-export const riskLevel = (reasons) =>
-  reasons.some(
-    (r) =>
-      ["ua", "multi", "comboChina", "comboCloud"].includes(r.code) ||
-      (r.ruleVersion !== "3.7" && ["china", "datacenter"].includes(r.code)),
-  )
-    ? "high"
-    : reasons.some((r) =>
-          ["ip", "rate", "china", "datacenter"].includes(r.code),
-        )
-      ? "medium"
-      : reasons.length
-        ? "low"
-        : "none";
-export const levelLabel = (level) =>
-  ({ high: "高风险", medium: "中风险", low: "低风险", none: "已解除" })[level];
-export function evaluate(db, panel, uid, now = Date.now(), geo) {
+export const riskLevel = (reasons) => (reasons.length ? "suspicious" : "none");
+export const levelLabel = (level) => (level === "none" ? "已解除" : "可疑用户");
+export function evaluate(db, panel, uid, now = Date.now(), geo, fresh = []) {
   const subject = db
     .prepare("SELECT * FROM subjects WHERE panel=? AND uid=?")
     .get(panel.id, uid);
@@ -23,7 +9,7 @@ export function evaluate(db, panel, uid, now = Date.now(), geo) {
   const old = db
     .prepare("SELECT * FROM risks WHERE panel=? AND uid=?")
     .get(panel.id, uid);
-  const current = assess(db, panel, subject, now, geo);
+  const current = assess(db, panel, subject, now, geo, fresh);
   // Keep triggered reasons until explicit handling; expiry only affects live checks.
   const saved = old?.active && !subject.white ? JSON.parse(old.reasons) : [];
   const reasons = [
@@ -39,7 +25,7 @@ export function evaluate(db, panel, uid, now = Date.now(), geo) {
         JSON.stringify(reasons[0]?.ruleSnapshot);
   if (!active && !old) return;
   if (!active && old && !old.active) return;
-  const high = riskLevel(current) === "high";
+  const high = riskLevel(current) === "suspicious";
   if (
     db
       .prepare(
@@ -53,8 +39,8 @@ export function evaluate(db, panel, uid, now = Date.now(), geo) {
         Math.max(
           0,
           ...previous
-            .filter((x) => riskLevel([x]) === "high")
-            .map((x) => x.expires || 0),
+            .filter((x) => riskLevel([x]) === "suspicious")
+            .map((x) => x.expires ?? Number.MAX_SAFE_INTEGER),
         ) <= now)
     )
       db.prepare("DELETE FROM risk_observation WHERE panel=? AND uid=?").run(
@@ -108,8 +94,8 @@ export function evaluate(db, panel, uid, now = Date.now(), geo) {
             "SELECT 1 FROM outbox WHERE panel=? AND uid=? AND COALESCE(json_extract(payload,'$.kind'),'risk')='risk'",
           )
           .get(panel.id, uid) ||
-        { none: 0, low: 1, medium: 2, high: 3 }[riskLevel(reasons)] >
-          { none: 0, low: 1, medium: 2, high: 3 }[riskLevel(previous)])
+        { none: 0, suspicious: 1 }[riskLevel(reasons)] >
+          { none: 0, suspicious: 1 }[riskLevel(previous)])
     ) {
       db.prepare(
         "DELETE FROM outbox WHERE panel=? AND uid=? AND COALESCE(json_extract(payload,'$.kind'),'risk')='risk'",

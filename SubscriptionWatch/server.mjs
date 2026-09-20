@@ -1,3 +1,4 @@
+import { migrate371 } from "./migrate371.mjs";
 import { assess } from "./assessment.mjs";
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
@@ -95,6 +96,7 @@ export function createApp({
       geo = new GeoDatabase({ db, dataDir, encrypt, decrypt, fetcher });
       tg = new Telegram({ db, encrypt, decrypt, geo, fetcher });
       bans = new AccountBan({ db, encrypt, decrypt, geo, fetcher });
+      migrate371(db);
       // Verify restored encrypted credentials before accepting the replacement.
       if (validate) {
         try {
@@ -622,7 +624,7 @@ export function createApp({
         if (action === "preview" && method === "POST") {
           const rules = validateRules(b.rules),
             candidate = { ...panel, rules: JSON.stringify(rules) };
-          const counts = { low: 0, medium: 0, high: 0, none: 0 },
+          const counts = { suspicious: 0, none: 0 },
             now = Date.now();
           for (const subject of db
             .prepare("SELECT * FROM subjects WHERE panel=?")
@@ -631,7 +633,7 @@ export function createApp({
           return json(res, 200, {
             counts,
             at: now,
-            note: "仅基于保留的评估样本；已处理记录不参与。未保存规则，不发通知、不封禁。",
+            note: "地域规则按保留样本预览；UA和云服务器仅预览已有触发证据，新请求才会新增标记。已保留的旧标记不会因预览解除。不发通知、不封禁。",
           });
         }
         if (action === "settings" && method === "POST") {
@@ -919,7 +921,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.7.0 ready");
+  console.log("Subscription Watch v3.7.1 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

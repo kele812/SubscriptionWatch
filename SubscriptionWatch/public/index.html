@@ -4,16 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.7.0-risk3" />
+    <link rel="stylesheet" href="/style.css?v=3.7.1" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.7.0 · 独立采集 · 风险评估</small>
+        <small>v3.7.1 · 独立采集 · 风险评估</small>
         <nav>
           <button data-tab="history" class="active">访问记录</button
-          ><button data-tab="risk">风险用户</button
+          ><button data-tab="risk">可疑用户</button
           ><button data-tab="riskHistory">评估历史</button
           ><button data-tab="whitelist">用户白名单</button
           ><button data-tab="panelSettings">面板设置</button
@@ -46,7 +46,7 @@
           <div><span>访问记录</span><strong id="metricEvents">—</strong></div>
           <div><span>最近24小时</span><strong id="metricToday">—</strong></div>
           <div>
-            <span>当前风险用户</span><strong id="metricRisks">—</strong>
+            <span>当前可疑用户</span><strong id="metricRisks">—</strong>
           </div>
           <div>
             <span>风控机剩余空间</span><strong id="metricDisk">—</strong>
@@ -119,281 +119,153 @@
                 max="3650"
                 required
             /></label>
-            <p>每分钟清理超过保留天数的访问记录；风险用户和评估历史不删除。</p>
+            <p>每分钟清理超过保留天数的访问记录；可疑用户和评估历史不删除。</p>
             <button>保存面板设置</button>
           </form>
           <form id="rulesForm" class="settings-form">
-            <h2>风险规则</h2>
+            <h2>可疑用户判断规则</h2>
             <p>
-              除UA异常检查外，仅统计插件上报HTTP
-              2xx的请求；失败和未知状态不参与共享判断。共7条规则，任一触发即标记，取最高风险等级。以下阈值可分别调整。
+              共4条规则，任一触发即标记为可疑用户，不自动解除。用户白名单及访问来源豁免优先；除UA规则外仅统计HTTP
+              2xx成功请求。地域归属依赖IP数据库，未知归属不当作境外。
             </p>
             <fieldset class="rule-card">
-              <legend>01 · 使用非指定客户端获取订阅 · 高风险</legend>
-              <label
-                ><input name="uaEnabled" type="checkbox" />启用 UA
-                允许名单</label
+              <legend>01 · 非指定客户端获取订阅</legend>
+              <label><input type="checkbox" name="uaEnabled" />启用UA检查</label
               ><label
-                >允许的客户端 UA 关键词（每行一个，忽略大小写）<textarea
+                >允许的UA关键词（每行一个）<textarea
                   name="uaKeywords"
-                  rows="4"
+                  rows="6"
                 ></textarea>
               </label>
-              <p class="rule-help">
-                UA是客户端获取订阅时发送的身份文字。每行填写一个关键词，原始UA包含任意一个关键词即匹配，忽略大小写，不使用正则表达式。例如shadowrocket可匹配Shadowrocket/3445。未匹配或UA为空时触发UA风险，单独触发为高风险，不会直接阻止订阅；其他风险规则仍独立判断。UA可以伪造或自定义，匹配不代表身份可信。常见关键词可按实际访问记录增删。
+              <p>
+                每次新请求检查完整UA，包含任意允许关键词即通过，忽略大小写；不匹配或为空即标记，不设置评估时间。UA可以伪造，匹配不代表身份可信。
               </p>
-              <button type="button" id="addCommonUa">补充常见关键词</button>
-              <label
-                >检查最近多少小时的访问（1～168）<input
-                  name="uaHours"
-                  type="number"
-                  min="1"
-                  max="168"
-                  required
-              /></label>
-              <p class="rule-help">
-                只检查同一用户最近设置的小时数内的UA，范围随当前时间向前滚动，不按整点清零。例如设为24小时，昨天15点的一次不匹配UA会参与评估到今天15点；此后若没有新的异常UA，这次请求不再参与实时判断，但已标记风险不会自动降级或解除，需手动处理。期间正常UA访问不会抵消异常记录；其他风险原因可能继续生效。允许设置1～168小时。
-              </p>
+              <button type="button" id="addCommonUa">补充常见UA关键词</button>
             </fieldset>
             <fieldset class="rule-card">
-              <legend>02 · 多个 IP 获取同一订阅 · 中风险</legend>
+              <legend>02 · 多个中国大陆 IP 获取订阅</legend>
               <label
                 ><input
-                  name="ipEnabled"
                   type="checkbox"
-                />启用不同IP数量规则</label
-              >
-              <p class="rule-help">
-                统计同一用户最近一段时间使用了多少个不同IP。同一个IP更新多次只算1个。例如设为24小时、5个IP，最近24小时出现第5个不同IP时标记为中风险。时间范围随当前时间向前滚动，不按整点清零；白名单请求不计数。
-              </p>
-              <div class="form-grid">
-                <label
-                  >时间窗口（小时）<input
-                    name="ipHours"
-                    type="number"
-                    min="1"
-                    max="168"
-                    required /></label
-                ><label
-                  >达到几个不同IP<input
-                    name="ipLimit"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    required
-                /></label>
-              </div>
-            </fieldset>
-            <fieldset class="rule-card">
-              <legend>03 · 频繁获取同一订阅 · 中风险</legend>
-              <label
-                ><input
-                  name="rateEnabled"
-                  type="checkbox"
-                />启用获取订阅次数规则</label
-              >
-              <p class="rule-help">
-                统计同一用户最近设置的分钟数内获取订阅的有效次数，达到阈值标记为中风险。同一个中国大陆IP且原始UA完全相同的重复请求合并为1次；不同UA分别计数，包括版本号或大小写不同。国外或归属未知IP按实际次数计算。例如60分钟内，同一个国内IP以相同UA更新8次只算1次；若使用两个不同UA，各更新4次，则算2次。IP白名单请求不计数。国内识别依赖已安装的IP数据库，UA等其他规则仍独立判断。
-              </p>
-              <div class="form-grid">
-                <label
-                  >时间窗口（分钟）<input
-                    name="rateMinutes"
-                    type="number"
-                    min="1"
-                    max="10080"
-                    required /></label
-                ><label
-                  >达到几次请求<input
-                    name="rateLimit"
-                    type="number"
-                    min="1"
-                    max="10000"
-                    required
-                /></label>
-              </div>
-            </fieldset>
-            <fieldset class="rule-card">
-              <legend>04 · 短时间内多个中国大陆 IP 获取订阅 · 中风险</legend>
-              <label
-                ><input
                   name="chinaEnabled"
-                  type="checkbox"
-                />启用中国大陆多IP规则</label
+                />启用中国大陆IP检查</label
               >
-              <p class="rule-help">
-                仅统计成功获取订阅（HTTP
-                2xx）的同一用户使用的不同中国大陆IP。例如60分钟内出现3个不同中国大陆IP，标记为中风险；同一个国内IP重复更新不增加IP数量。自有节点、IP白名单和其他已启用的豁免不计入。需要安装IP数据库；单项触发不自动封禁，组合升级高风险后仍受封禁开关和观察期控制。
+              <p>
+                默认同一用户最近60分钟超过3个不同中国大陆IP（第4个），或720分钟超过10个（第11个）即标记。重复IP只计一个，不区分UA。
               </p>
               <div class="form-grid">
                 <label
-                  >窗口（分钟）<input
-                    name="chinaMinutes"
+                  >较短时间范围（分钟）<input
                     type="number"
                     min="1"
                     max="10080"
-                    required /></label
+                    required
+                    name="cnShortMinutes" /></label
                 ><label
-                  >不同IP达到几个<input
-                    name="chinaLimit"
+                  >超过几个不同IP<input
                     type="number"
                     min="1"
                     max="1000"
                     required
+                    name="cnShortLimit"
+                /></label>
+              </div>
+              <div class="form-grid">
+                <label
+                  >较长时间范围（分钟）<input
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required
+                    name="cnLongMinutes" /></label
+                ><label
+                  >超过几个不同IP<input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                    name="cnLongLimit"
                 /></label>
               </div>
             </fieldset>
             <fieldset class="rule-card">
-              <legend>05 · 多个云服务器 IP 获取订阅 · 中风险</legend>
+              <legend>03 · 云服务器 IP 获取订阅</legend>
               <label
                 ><input
-                  name="dcEnabled"
                   type="checkbox"
-                />启用数据中心多IP规则</label
-              >
-              <p class="rule-help">
-                按IP数据库中的组织名匹配下面的云厂商关键词，统计同一用户使用的不同数据中心IP。例如10分钟内达到3个时标记为中风险；同一家云厂商的不同IP也分别计数。自有节点及豁免请求不计入。云服务器IP不一定代表恶意，建议先查看访问证据，再决定是否封禁。
-              </p>
-              <div class="form-grid">
-                <label
-                  >窗口（分钟）<input
-                    name="dcMinutes"
-                    type="number"
-                    min="1"
-                    max="10080"
-                    required /></label
-                ><label
-                  >不同IP达到几个<input
-                    name="dcLimit"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    required
-                /></label>
-              </div>
-              <label
-                >需要关注的云服务商关键词（每行一个，忽略大小写）<textarea
+                  name="dcEnabled"
+                />启用云服务器IP检查</label
+              ><label
+                >云厂商组织名关键词（每行一个）<textarea
                   name="dcKeywords"
                   rows="6"
                 ></textarea>
               </label>
               <p>
-                按本地IP数据库的组织名识别。未安装数据库或归属未知时，不触发地域/组织规则。同一家数据中心的不同IP也分别计数。
+                组织名包含任一关键词且成功拉取一次即标记；忽略大小写，不使用正则表达式。不设置时间窗口。
               </p>
             </fieldset>
             <fieldset class="rule-card">
-              <legend>06 · 多个 IP 和不同 UA 同时获取订阅 · 高风险</legend>
-              <label
-                ><input name="multiEnabled" type="checkbox" />启用规则</label
-              >
-              <div class="form-grid">
-                <label
-                  >统计最近多少分钟<input
-                    name="multiMinutes"
-                    type="number"
-                    min="1"
-                    max="10080"
-                    value="10"
-                    required /></label
-                ><label
-                  >不同IP达到几个<input
-                    name="multiIpLimit"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value="3"
-                    required /></label
-                ><label
-                  >不同原始UA达到几种<input
-                    name="multiUaLimit"
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value="3"
-                    required
-                /></label>
-              </div>
-              <p class="rule-help">
-                同一用户在同一时间范围内同时达到IP和UA数量阈值。按完整原始UA区分，版本号或大小写不同分别计数；空UA也作为一种原始值。只统计HTTP
-                2xx成功请求。
-              </p>
-            </fieldset>
-            <fieldset class="rule-card">
-              <legend>07 · 短时间跨多个国家或地区获取订阅 · 低风险</legend>
-              <label
-                ><input name="countryEnabled" type="checkbox" />启用规则</label
-              >
-              <div class="form-grid">
-                <label
-                  >统计最近多少分钟<input
-                    name="countryMinutes"
-                    type="number"
-                    min="1"
-                    max="10080"
-                    value="30"
-                    required /></label
-                ><label
-                  >国家或地区达到几个<input
-                    name="countryLimit"
-                    type="number"
-                    min="1"
-                    max="250"
-                    value="3"
-                    required
-                /></label>
-              </div>
-              <p class="rule-help">
-                按IP数据库的国家或地区代码计算，不按省市。未知归属、自有节点和豁免请求不计入，仅作为辅助提醒；只统计HTTP
-                2xx请求。
-              </p>
-            </fieldset>
-            <fieldset class="rule-card">
-              <legend>组合升级 · 高风险</legend>
+              <legend>04 · 多个非中国大陆 IP 获取订阅</legend>
               <label
                 ><input
-                  name="comboEnabled"
                   type="checkbox"
-                />启用组合升级</label
-              ><label
-                >组合条件共同统计最近多少分钟<input
-                  name="comboMinutes"
-                  type="number"
-                  min="1"
-                  max="10080"
-                  value="10"
-                  required
-              /></label>
-              <p class="rule-help">
-                “国内多IP”或“云服务器多IP”与“频繁获取”在上述同一时间范围内分别达到数量阈值才升级高风险。相关规则必须开启；不把不同时间的异常拼在一起，也不把普通IP数量和国内IP数量算两个独立异常。
+                  name="foreignEnabled"
+                />启用非中国大陆IP检查</label
+              >
+              <p>
+                默认同一用户最近60分钟超过3个不同非中国大陆IP（第4个），或720分钟超过10个（第11个）即标记。港澳台计入，归属未知排除。同一IP不区分UA只计一个。
               </p>
+              <div class="form-grid">
+                <label
+                  >较短时间范围（分钟）<input
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required
+                    name="foreignShortMinutes" /></label
+                ><label
+                  >超过几个不同IP<input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                    name="foreignShortLimit"
+                /></label>
+              </div>
+              <div class="form-grid">
+                <label
+                  >较长时间范围（分钟）<input
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required
+                    name="foreignLongMinutes" /></label
+                ><label
+                  >超过几个不同IP<input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                    name="foreignLongLimit"
+                /></label>
+              </div>
             </fieldset>
             <fieldset class="rule-card">
-              <legend>不参与风险判断的情况</legend>
+              <legend>不检查的访问来源</legend>
               <label
-                >自己的代理节点 IP（每行一个完整 IP）<textarea
-                  name="ownedIps"
-                  rows="4"
-                  placeholder="填写你自己的梯子节点出口IP"
-                ></textarea>
-              </label>
-              <p>
-                自有节点不计入普通IP数量、国内IP、云服务器IP和跨国家规则；仍检查UA、请求频率及IP与UA双条件。组合升级时不计入国内或云服务器IP数量。普通多IP规则始终排除Cloudflare节点，不受下方全局豁免开关影响。
-              </p>
-              <label
-                ><input name="cloudflareExempt" type="checkbox" />不检查来自
-                Cloudflare 的订阅请求</label
-              >
-              <p class="rule-help">
-                按IP数据库中的组织名是否包含Cloudflare判断。开启后这些请求仍记录，但不参与任何风险判断；同一用户其他IP仍正常检查。
-              </p>
-              <label
-                >IP白名单（每行一个完整IPv4或IPv6地址）<textarea
+                >IP白名单（每行一个完整IP）<textarea
                   name="ipWhitelist"
-                  rows="4"
-                ></textarea>
-              </label>
-              <p>
-                豁免请求仍记录，但不计入任何风险规则，不会豁免同一用户其他IP的请求。
+                  rows="5"
+                ></textarea></label
+              ><label
+                ><input
+                  type="checkbox"
+                  name="cloudflareExempt"
+                />不检查来自Cloudflare的订阅请求</label
+              >
+              <p class="evidence-exempt">
+                匹配IP白名单或已开启的Cloudflare组织名豁免后，请求仍记录，但不参与任何规则判断。
               </p>
             </fieldset>
             <p id="rulesDirty" role="status">规则已保存</p>
@@ -402,18 +274,21 @@
             <p id="previewResult" role="status"></p>
           </form>
           <form id="banForm" class="settings-form">
-            <h2>高风险自动封禁 Xboard 账号</h2>
+            <h2>可疑用户自动封禁 Xboard 账号</h2>
             <p>
-              默认关闭。开启后仅对实时判断仍满足高风险的用户执行账号封禁；保留的过期风险标记不会单独触发封禁。封禁会修改Xboard用户状态；管理员和员工账号不会自动封禁。
+              默认关闭。开启后仅对实时判断仍满足可疑用户的用户执行账号封禁；保留的过期风险标记不会单独触发封禁。封禁会修改Xboard用户状态；管理员和员工账号不会自动封禁。
             </p>
             <label
-              ><input name="enabled" type="checkbox" />启用高风险自动封禁</label
+              ><input
+                name="enabled"
+                type="checkbox"
+              />启用可疑用户自动封禁</label
             >
             <p>
               使用v3.5采集插件领取任务，无需填写Xboard地址或管理API凭据。任务约每分钟领取，关闭开关不会撤回已下发的任务；最长30秒内可能仍会执行。
             </p>
             <label
-              >封禁前持续高风险观察期（分钟，0为立即执行）<input
+              >封禁前持续可疑用户观察期（分钟，0为立即执行）<input
                 name="observeMinutes"
                 type="number"
                 min="0"
@@ -422,7 +297,7 @@
                 required
             /></label>
             <p>
-              默认30分钟。实时高风险条件消失后重新计时，已标记风险仍保留；保存封禁设置会重新开始观察。实时高风险未持续到观察期不会封禁。
+              默认30分钟。实时可疑条件消失后重新计时，已标记风险仍保留；保存封禁设置会重新开始观察。实时可疑用户未持续到观察期不会封禁。
             </p>
             <button>保存封禁设置</button>
             <p id="banStatus"></p>
@@ -443,7 +318,7 @@
           <div class="settings-block danger">
             <h2>数据管理</h2>
             <p>
-              清空访问历史不会删除风险用户、评估历史或白名单。风险计算所需的短期证据最多保留7天，到期自动清理。
+              清空访问历史不会删除可疑用户、评估历史或白名单。风险计算所需的短期证据最多保留7天，到期自动清理。
             </p>
             <button id="clearVisits">清空访问历史</button
             ><button id="deletePanel">删除整个面板</button>
@@ -601,6 +476,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.7.0-risk3"></script>
+    <script src="/app.js?v=3.7.1"></script>
   </body>
 </html>

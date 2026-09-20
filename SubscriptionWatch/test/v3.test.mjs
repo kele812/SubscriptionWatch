@@ -245,66 +245,6 @@ test("账号、面板、密钥、同名用户隔离；签名、原子性和重�
     );
   }));
 
-test("三条风险规则、滚动阈值、白名单和去重通知", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      now = Date.now();
-    await send(
-      c,
-      p,
-      Array.from({ length: 4 }, (_, i) =>
-        event({ ip: `1.1.1.${i + 1}`, ts: now - 10000 + i }),
-      ),
-    );
-    assert.equal(
-      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      0,
-    );
-    await send(c, p, [event({ ip: "1.1.1.5" })]);
-    let risks = (await c.api(`/api/panels/${p.id}/risks`, undefined, auth))
-      .rows;
-    assert.deepEqual(
-      risks[0].reasons.map((r) => r.code),
-      ["ip", "rate"],
-    );
-    const count = c.app.db.prepare("SELECT count(*) n FROM outbox").get().n;
-    await send(c, p, [event()]);
-    assert.equal(
-      c.app.db.prepare("SELECT count(*) n FROM outbox").get().n,
-      count,
-    );
-    await send(c, p, [event({ ua: "Mozilla/5.0" })]);
-    assert.ok(
-      (
-        await c.api(`/api/panels/${p.id}/risks`, undefined, auth)
-      ).rows[0].reasons.some((r) => r.code === "ua"),
-    );
-    await c.api(
-      `/api/panels/${p.id}/whitelist`,
-      { uid: 1, email: "sample@example.com", enabled: true },
-      auth,
-    );
-    assert.equal(
-      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      0,
-    );
-    await send(c, p, [event({ ua: "" })]);
-    assert.equal(
-      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      0,
-    );
-    await c.api(
-      `/api/panels/${p.id}/whitelist`,
-      { uid: 1, enabled: false },
-      auth,
-    );
-    assert.equal(
-      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      1,
-    );
-  }));
-
 test("取消后旧请求不再触发，新增异常再次触发；清空访问记录保留风险与评估历史", () =>
   fixture(async (c) => {
     const auth = await setup(c),
@@ -370,85 +310,6 @@ test("取消后旧请求不再触发，新增异常再次触发；清空访问�
     assert.equal(
       c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n,
       0,
-    );
-  }));
-
-test("UA高风险过期后保留标记及重启状态，但不再具备自动封禁资格", () =>
-  fixture(async (c) => {
-    let auth = await setup(c),
-      p = await panel(c, auth);
-    await send(c, p, [event({ ua: "UnknownClient" })]);
-    const stored = c.app.db
-      .prepare("SELECT * FROM panels WHERE id=?")
-      .get(p.id);
-    const future = Date.now() + 25 * 3600000;
-    assert.ok(c.app.bans.eligible(stored, 1));
-    assert.equal(c.app.bans.eligible(stored, 1, future), null);
-    let result = (await c.api(`/api/panels/${p.id}/risks`, undefined, auth))
-      .rows[0];
-    assert.equal(result.level, "high");
-    await c.restart();
-    auth = cookie(await c.request("/api/login", user));
-    result = (await c.api(`/api/panels/${p.id}/risks`, undefined, auth))
-      .rows[0];
-    assert.equal(result.level, "high");
-    await c.api(`/api/panels/${p.id}/resolve`, { uid: 1 }, auth);
-    assert.equal(
-      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      0,
-    );
-  }));
-
-test("频率条件到期仍保留风险，合法UA大小写匹配、规则修改和CSV转义", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth);
-    await c.api(
-      `/api/panels/${p.id}/settings`,
-      {
-        name: "test",
-        notify: true,
-        rules: { ...defaults, uaKeywords: ["netflow"], ipEnabled: false },
-      },
-      auth,
-    );
-    const now = Date.now();
-    await send(
-      c,
-      p,
-      Array.from({ length: 5 }, () =>
-        event({ ts: now - 3599000, ua: "NETFLOW/1", email: "=SUM(1)" }),
-      ),
-    );
-    assert.equal(
-      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows[0]
-        .reasons[0].code,
-      "rate",
-    );
-    evaluate(
-      c.app.db,
-      c.app.db.prepare("SELECT * FROM panels WHERE id=?").get(p.id),
-      1,
-      now + 1000,
-    );
-    assert.equal(
-      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
-      1,
-    );
-    const csv = await (
-      await c.request(`/api/panels/${p.id}/export`, undefined, auth)
-    ).text();
-    assert.ok(csv.includes("'=SUM(1)"));
-    assert.ok(!csv.includes("客户端推测"));
-    assert.equal(
-      (
-        await c.request(
-          `/api/panels/${p.id}/settings`,
-          { name: "test", notify: true, rules: { ...defaults, rateLimit: 0 } },
-          auth,
-        )
-      ).status,
-      400,
     );
   }));
 
@@ -996,55 +857,6 @@ test("白名单精确核对、只显示主动添加用户、邮箱变化撤销�
     );
   }));
 
-test("三级风险、中国IP和云组织规则、IP及Cloudflare请求豁免、到期保留风险", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      url = `/api/panels/${p.id}`;
-    c.app.geo.lookup = (ip) => ({
-      countryCode: ip.startsWith("1.") ? "CN" : "US",
-      organization: ip.startsWith("2.")
-        ? "Tencent Cloud"
-        : ip.startsWith("3.")
-          ? "Cloudflare, Inc."
-          : "ISP",
-    });
-    const rows = async () =>
-      (await c.api(url + "/risks", undefined, auth)).rows;
-    await send(c, p, [event({ ua: "browser" })]);
-    assert.equal((await rows())[0].level, "high");
-    await send(
-      c,
-      p,
-      Array.from({ length: 4 }, () => event({ ip: "4.0.0.1" })),
-    );
-    assert.equal((await rows()).find((x) => x.uid === 1).level, "high");
-    await send(c, p, [event({ ip: "1.1.1.2" }), event({ ip: "1.1.1.3" })]);
-    assert.equal((await rows())[0].level, "high");
-    await send(c, p, [
-      event({ user_id: 2, ip: "2.0.0.1" }),
-      event({ user_id: 2, ip: "2.0.0.2" }),
-      event({ user_id: 2, ip: "2.0.0.3" }),
-    ]);
-    assert.equal((await rows()).find((x) => x.uid === 2).level, "medium");
-    await send(c, p, [event({ user_id: 3, ip: "3.0.0.1", ua: "browser" })]);
-    const rules = {
-      ...defaults,
-      cloudflareExempt: true,
-      ipWhitelist: ["2.0.0.1", "2.0.0.2", "2.0.0.3"],
-    };
-    await c.api(url + "/settings", { name: "test", notify: true, rules }, auth);
-    assert.deepEqual((await rows()).map((x) => x.uid).sort(), [1, 2, 3]);
-    assert.equal((await c.api(url + "/events", undefined, auth)).total, 11);
-    const stored = c.app.db
-      .prepare("SELECT * FROM panels WHERE id=?")
-      .get(p.id);
-    evaluate(c.app.db, stored, 1, Date.now() + 11 * 60000, c.app.geo);
-    assert.equal((await rows()).find((x) => x.uid === 1).level, "high");
-    await send(c, p, [event({ user_id: 3, ip: "4.0.0.1", ua: "browser" })]);
-    assert.equal((await rows()).find((x) => x.uid === 3).level, "high");
-  }));
-
 test("定时清理只删到期访问记录，手动清理只需确认按钮", () =>
   fixture(async (c) => {
     const auth = await setup(c),
@@ -1318,94 +1130,6 @@ test("v3.3管理员API凭据清除，升级关闭封禁但保留旧执行历史"
     assert.equal(c.app.bans.status(p.id).history[0].status, "已封禁");
   }));
 
-test("自有节点排除地域组织计数，但UA与频率照常评估；证据保留归属和UA", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      url = `/api/panels/${p.id}`;
-    c.app.geo.lookup = () => ({
-      countryCode: "CN",
-      country: "中国",
-      organization: "Tencent Cloud",
-    });
-    const ips = ["1.1.1.1", "1.1.1.2", "1.1.1.3"];
-    await c.api(
-      url + "/settings",
-      { name: "test", notify: true, rules: { ...defaults, ownedIps: ips } },
-      auth,
-    );
-    await send(
-      c,
-      p,
-      ips.map((ip) => event({ ip, ua: "Browser" })),
-    );
-    let row = (await c.api(url + "/risks", undefined, auth)).rows[0];
-    assert.equal(row.level, "high");
-    assert.equal(row.reasons[0].evidence[0].owned, true);
-    assert.equal(row.reasons[0].evidence[0].geo.organization, "Tencent Cloud");
-    assert.equal(row.reasons[0].evidence[0].ua, "Browser");
-    await send(c, p, [event(), event()]);
-    assert.equal(
-      (await c.api(url + "/risks", undefined, auth)).rows[0].level,
-      "high",
-    );
-    c.app.geo.lookup = (ip) => ({
-      countryCode: ip.startsWith("4.") ? "US" : "CN",
-      country: "测试",
-      organization: "Tencent Cloud",
-    });
-    await send(c, p, [event({ ip: "4.0.0.1" }), event({ ip: "4.0.0.1" })]);
-    row = (await c.api(url + "/risks", undefined, auth)).rows[0];
-    assert.equal(row.level, "high");
-    assert.equal(row.reasons.find((x) => x.code === "rate").threshold, 5);
-    assert.equal(row.reasons.find((x) => x.code === "rate").windowMinutes, 60);
-    assert.equal(
-      (
-        await c.request(
-          url + "/settings",
-          {
-            name: "test",
-            notify: true,
-            rules: { ...defaults, ownedIps: ["*"] },
-          },
-          auth,
-        )
-      ).status,
-      400,
-    );
-  }));
-
-test("观察期默认30分钟，持续高风险到期才执行；降级重置，重启保留", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      url = `/api/panels/${p.id}/ban`;
-    await highRisk(c, p);
-    await control(c, p);
-    assert.equal((await c.api(url, undefined, auth)).observeMinutes, 30);
-    await c.api(url, { enabled: true }, auth);
-    assert.equal((await control(c, p)).tasks.length, 0);
-    const stored = c.app.db
-      .prepare("SELECT * FROM panels WHERE id=?")
-      .get(p.id);
-    c.app.geo.lookup = () => ({ countryCode: "US", organization: "ISP" });
-    evaluate(c.app.db, stored, 1, Date.now(), c.app.geo);
-    assert.equal(
-      c.app.db.prepare("SELECT count(*) n FROM risk_observation").get().n,
-      0,
-    );
-    await highRisk(c, p);
-    c.app.db
-      .prepare("UPDATE risk_observation SET since=?")
-      .run(Date.now() - 31 * 60000);
-    c.app.db
-      .prepare("UPDATE ban_settings SET since=?")
-      .run(Date.now() - 31 * 60000);
-    await c.restart();
-    c.app.geo.lookup = () => ({ countryCode: "CN", organization: "ISP" });
-    assert.equal((await control(c, p)).tasks.length, 1);
-  }));
-
 test("手动解封要求新插件、已知ID邮箱、鉴权；不依赖封禁开关且回执幂等", () =>
   fixture(async (c) => {
     const auth = await setup(c),
@@ -1453,48 +1177,6 @@ test("手动解封要求新插件、已知ID邮箱、鉴权；不依赖封禁开
       (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
       0,
     );
-  }));
-
-test("风险通知队列合并为最新等级，解除风险后操作结果仍通知", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth);
-    await send(c, p, [event({ ua: "Browser" })]);
-    await highRisk(c, p);
-    assert.equal(c.app.db.prepare("SELECT count(*) n FROM outbox").get().n, 1);
-    const data = JSON.parse(
-      c.app.db.prepare("SELECT payload FROM outbox").get().payload,
-    );
-    assert.ok(data.reasons.some((r) => r.code === "china"));
-    await highRisk(c, p);
-    assert.equal(c.app.db.prepare("SELECT count(*) n FROM outbox").get().n, 1);
-    c.app.bans.notifyAction({
-      panel: p.id,
-      uid: 1,
-      kind: "unban",
-      status: "已解封",
-      message: "done",
-    });
-    await c.api(`/api/panels/${p.id}/resolve`, { uid: 1 }, auth);
-    assert.equal(c.app.db.prepare("SELECT count(*) n FROM outbox").get().n, 1);
-    c.app.db
-      .prepare(
-        "INSERT INTO telegram(panel,account,token,bot_id,chat) VALUES(?,1,'test','1','22')",
-      )
-      .run(p.id);
-    c.app.tg.decrypt = () => "test";
-    const sent = [];
-    c.app.tg.call = async (secret, method, body) => {
-      if (method === "getUpdates") return [];
-      if (method === "sendMessage") {
-        sent.push(body.text);
-        return { message_id: 1 };
-      }
-      return {};
-    };
-    await c.app.tg.tick();
-    assert.equal(sent.length, 1);
-    assert.match(sent[0], /已解封/);
   }));
 
 test("完整备份需登录，恢复保留账号密钥面板；损坏包拒绝且原数据不变", () =>
@@ -1616,75 +1298,6 @@ async function importWeb(c, auth, bytes, confirmed = true) {
     body: bytes,
   });
 }
-test("频率统计按国内IP与完整UA去重、白名单排除，国外及未知IP逐次计算", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      url = `/api/panels/${p.id}`;
-    await c.api(
-      url + "/settings",
-      {
-        name: "test",
-        notify: true,
-        rules: {
-          ...defaults,
-          uaEnabled: false,
-          ipEnabled: false,
-          chinaEnabled: false,
-          dcEnabled: false,
-          ipWhitelist: ["2.2.2.2"],
-        },
-      },
-      auth,
-    );
-    c.app.geo.lookup = (ip) =>
-      ip.startsWith("1.")
-        ? { countryCode: "CN" }
-        : ip.startsWith("3.")
-          ? { countryCode: "US" }
-          : {};
-    await send(
-      c,
-      p,
-      Array.from({ length: 8 }, () => event({ ip: "1.1.1.1" })),
-    );
-    await send(
-      c,
-      p,
-      Array.from({ length: 8 }, () => event({ ip: "2.2.2.2" })),
-    );
-    assert.equal((await c.api(url + "/risks", undefined, auth)).rows.length, 0);
-    await send(c, p, [
-      event({ ip: "3.3.3.3" }),
-      event({ ip: "3.3.3.3" }),
-      event({ ip: "4.4.4.4" }),
-    ]);
-    assert.equal((await c.api(url + "/risks", undefined, auth)).rows.length, 0);
-    await send(c, p, [event({ ip: "4.4.4.4" })]);
-    const reason = (await c.api(url + "/risks", undefined, auth)).rows[0]
-      .reasons[0];
-    assert.equal(reason.code, "rate");
-    assert.equal(reason.count, 5);
-    assert.equal(reason.rawCount, 12);
-    await send(
-      c,
-      p,
-      Array.from({ length: 8 }, () => event({ user_id: 2, ip: "1.1.1.1" })),
-    );
-    assert.equal((await c.api(url + "/risks", undefined, auth)).rows.length, 1);
-    await send(c, p, [
-      event({ user_id: 2, ua: "Shadowrocket/3446" }),
-      event({ user_id: 2, ua: "shadowrocket/3445" }),
-      event({ user_id: 2, ua: "NetFlow/1" }),
-    ]);
-    assert.equal((await c.api(url + "/risks", undefined, auth)).rows.length, 1);
-    await send(c, p, [event({ user_id: 2, ua: "Clash/1" })]);
-    const second = (await c.api(url + "/risks", undefined, auth)).rows.find(
-      (r) => r.uid === 2,
-    );
-    assert.equal(second.reasons[0].count, 5);
-    assert.equal(second.reasons[0].rawCount, 12);
-  }));
 
 test("风险页面手动封禁跳过观察期、支持旧控制插件、鉴权及白名单检查", () =>
   fixture(async (c) => {
@@ -1819,204 +1432,6 @@ test("网页导入坏包及不匹配密钥均保留原运行数据和登录状�
     await c.api("/api/panels", { name: "still writable" }, auth);
   }));
 
-test("v3.7 完整UA双条件、失败请求排除、预览无写入且鉴权", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      url = `/api/panels/${p.id}`;
-    const rules = {
-      ...defaults,
-      uaEnabled: false,
-      ipEnabled: false,
-      rateEnabled: false,
-      chinaEnabled: false,
-      dcEnabled: false,
-      countryEnabled: false,
-      comboEnabled: false,
-    };
-    await c.api(url + "/settings", { name: "test", notify: true, rules }, auth);
-    await send(c, p, [
-      event({ status: 500 }),
-      event({ status: 403, ip: "1.1.1.2", ua: "Shadowrocket/3446" }),
-      event({ status: 404, ip: "1.1.1.3", ua: "shadowrocket/3445" }),
-    ]);
-    assert.equal((await c.api(url + "/risks", undefined, auth)).rows.length, 0);
-    await send(c, p, [
-      event(),
-      event({ ip: "1.1.1.2", ua: "Shadowrocket/3446" }),
-      event({ ip: "1.1.1.3", ua: "shadowrocket/3445" }),
-    ]);
-    let risk = (await c.api(url + "/risks", undefined, auth)).rows[0];
-    assert.equal(risk.level, "high");
-    assert.equal(risk.reasons[0].uaCount, 3);
-    assert.equal(risk.reasons[0].evidence.filter((e) => e.included).length, 3);
-    assert.ok(
-      risk.reasons[0].evidence
-        .filter((e) => e.included)
-        .every((e) => e.status === 200),
-    );
-    assert.ok(
-      risk.reasons[0].evidence.some(
-        (e) => !e.included && e.exclusion.includes("请求未成功"),
-      ),
-    );
-    const snapshot = () =>
-      JSON.stringify(
-        [
-          "panels",
-          "risks",
-          "risk_history",
-          "outbox",
-          "risk_observation",
-          "ban_actions",
-          "ban_tasks",
-        ].map((t) => c.app.db.prepare(`SELECT * FROM ${t}`).all()),
-      );
-    const before = snapshot();
-    assert.equal((await c.request(url + "/preview", { rules })).status, 401);
-    assert.equal(
-      (
-        await c.request(
-          url + "/preview",
-          { rules: { ...rules, multiMinutes: 0 } },
-          auth,
-        )
-      ).status,
-      400,
-    );
-    const preview = await c.api(
-      url + "/preview",
-      { rules: { ...rules, multiUaLimit: 4 } },
-      auth,
-    );
-    assert.equal(preview.counts.high, 0);
-    assert.equal(preview.counts.none, 1);
-    assert.equal(snapshot(), before);
-    await c.api(
-      url + "/settings",
-      { name: "test", notify: true, rules: { ...rules, multiMinutes: 20 } },
-      auth,
-    );
-    const history = c.app.db
-      .prepare("SELECT reasons FROM risk_history WHERE panel=? ORDER BY id")
-      .all(p.id)
-      .map((x) => JSON.parse(x.reasons));
-    assert.equal(history[0][0].windowMinutes, 10);
-    assert.equal(history.at(-1)[0].windowMinutes, 20);
-    assert.equal(history[0][0].ruleSnapshot.multiMinutes, 10);
-    assert.equal((await c.api(url + "/events", undefined, auth)).total, 6);
-  }));
-
-test("v3.7 跨国家排除未知及自有节点，组合不得拼接窗口外异常", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      url = `/api/panels/${p.id}`;
-    c.app.geo.lookup = (ip) => ({
-      countryCode: { 1: "CN", 2: "US", 3: "JP", 4: "DE" }[ip[0]],
-    });
-    const rules = {
-      ...defaults,
-      uaEnabled: false,
-      ipEnabled: false,
-      rateEnabled: false,
-      chinaEnabled: false,
-      dcEnabled: false,
-      multiEnabled: false,
-      comboEnabled: false,
-      ownedIps: ["4.0.0.1"],
-    };
-    await c.api(
-      url + "/settings",
-      { name: "test", notify: false, rules },
-      auth,
-    );
-    await send(c, p, [
-      event(),
-      event({ ip: "2.0.0.1" }),
-      event({ ip: "4.0.0.1" }),
-      event({ ip: "9.0.0.1" }),
-    ]);
-    assert.equal((await c.api(url + "/risks", undefined, auth)).rows.length, 0);
-    await send(c, p, [event({ ip: "3.0.0.1" })]);
-    const result = (await c.api(url + "/risks", undefined, auth)).rows[0];
-    assert.equal(result.level, "low");
-    assert.equal(result.reasons[0].count, 3);
-    assert.equal(
-      result.reasons[0].evidence.filter((e) => e.included).length,
-      3,
-    );
-    assert.equal(result.reasons[0].accounting.totalIps, 5);
-    const now = Date.now();
-    await send(c, p, [
-      ...Array.from({ length: 5 }, (_, i) =>
-        event({ user_id: 2, ip: "1.0.0." + (i + 1), ts: now - 20 * 60000 }),
-      ),
-      event({ user_id: 2, ip: "2.0.0.2" }),
-    ]);
-    const candidate = {
-      ...c.app.db.prepare("SELECT * FROM panels WHERE id=?").get(p.id),
-      rules: JSON.stringify({
-        ...defaults,
-        multiEnabled: false,
-        countryEnabled: false,
-        chinaMinutes: 30,
-      }),
-    };
-    const subject = c.app.db
-      .prepare("SELECT * FROM subjects WHERE panel=? AND uid=2")
-      .get(p.id);
-    let reasons = assess(c.app.db, candidate, subject, now, c.app.geo);
-    assert.ok(reasons.some((r) => r.code === "china"));
-    assert.ok(reasons.some((r) => r.code === "rate"));
-    assert.ok(!reasons.some((r) => r.code.startsWith("combo")));
-    await send(
-      c,
-      p,
-      Array.from({ length: 5 }, (_, i) =>
-        event({ user_id: 2, ip: "1.0.0." + (i + 1), ts: now - 1000 }),
-      ),
-    );
-    reasons = assess(c.app.db, candidate, subject, now, c.app.geo);
-    const combo = reasons.find((r) => r.code === "comboChina");
-    assert.ok(combo);
-    assert.equal(combo.windowMinutes, 10);
-    assert.ok(combo.evidence.every((e) => e.time > now - 10 * 60000));
-    reasons = assess(c.app.db, candidate, subject, now + 10 * 60000, c.app.geo);
-    assert.ok(!reasons.some((r) => r.code.startsWith("combo")));
-  }));
-
-test("v3.7 仅IP与UA双条件高风险也能进入自动封禁任务", () =>
-  fixture(async (c) => {
-    const auth = await setup(c),
-      p = await panel(c, auth),
-      url = `/api/panels/${p.id}`;
-    const rules = {
-      ...defaults,
-      uaEnabled: false,
-      ipEnabled: false,
-      rateEnabled: false,
-      chinaEnabled: false,
-      dcEnabled: false,
-      countryEnabled: false,
-      comboEnabled: false,
-    };
-    await c.api(
-      url + "/settings",
-      { name: "test", notify: false, rules },
-      auth,
-    );
-    await send(c, p, [
-      event(),
-      event({ ip: "1.1.1.2", ua: "Clash/1" }),
-      event({ ip: "1.1.1.3", ua: "NetFlow/1" }),
-    ]);
-    await control(c, p);
-    await c.api(url + "/ban", { enabled: true, observeMinutes: 0 }, auth);
-    const result = await control(c, p);
-    assert.equal(result.tasks.length, 1);
-  }));
-
 test("v3.7 旧样本迁移保留失败状态，缺失访问记录不猜测成功", () =>
   fixture(async (c) => {
     const auth = await setup(c),
@@ -2041,5 +1456,135 @@ test("v3.7 旧样本迁移保留失败状态，缺失访问记录不猜测成功
     assert.equal(
       c.app.db.prepare("SELECT status FROM samples WHERE uid=2").get().status,
       500,
+    );
+  }));
+
+test("3.7.1单次云请求与UA立即标记，重复投递幂等，手动取消后不重放旧请求", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth);
+    c.app.geo.lookup = () => ({ countryCode: "US", organization: "Amazon" });
+    const bad = event({ ua: "Browser" });
+    await send(c, p, [bad]);
+    let rows = (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows;
+    assert.equal(rows[0].level, "suspicious");
+    assert.deepEqual(
+      rows[0].reasons.map((r) => r.code),
+      ["ua", "cloud"],
+    );
+    await c.api(`/api/panels/${p.id}/resolve`, { uid: 1 }, auth);
+    await send(c, p, [bad]);
+    assert.equal(
+      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows.length,
+      0,
+    );
+    await send(c, p, [event({ ts: Date.now() + 1, ua: "Browser" })]);
+    assert.equal(
+      (await c.api(`/api/panels/${p.id}/risks`, undefined, auth)).rows[0].level,
+      "suspicious",
+    );
+  }));
+
+test("3.7.1迁移只保留UA当前标记，保留历史访问，清空旧评估样本和关闭封禁，重启幂等", () =>
+  fixture(async (c) => {
+    let auth = await setup(c);
+    const p = await panel(c, auth);
+    await send(c, p, [
+      event({ ua: "Browser" }),
+      event({ user_id: 2, ua: "Browser" }),
+    ]);
+    const old = [{ code: "ip", label: "旧多IP", ruleVersion: "3.7", count: 5 }];
+    c.app.db
+      .prepare("UPDATE risks SET reasons=? WHERE uid=2")
+      .run(JSON.stringify(old));
+    c.app.db
+      .prepare("UPDATE risks SET reasons=? WHERE uid=1")
+      .run(
+        JSON.stringify([
+          {
+            code: "ua",
+            label: "旧UA",
+            ruleVersion: "3.7",
+            evidence: [{ ip: "1.1.1.1", ua: "Browser", status: 200 }],
+          },
+          ...old,
+        ]),
+      );
+    const visits = c.app.db.prepare("SELECT count(*) n FROM visits").get().n;
+    const history = c.app.db
+      .prepare("SELECT count(*) n FROM risk_history")
+      .get().n;
+    c.app.db.prepare("DELETE FROM config WHERE key='rules371'").run();
+    await c.restart();
+    auth = cookie(await c.request("/api/login", user));
+    const rows = (await c.api(`/api/panels/${p.id}/risks`, undefined, auth))
+      .rows;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].uid, 1);
+    assert.deepEqual(
+      rows[0].reasons.map((r) => r.code),
+      ["ua"],
+    );
+    assert.equal(
+      c.app.db.prepare("SELECT count(*) n FROM visits").get().n,
+      visits,
+    );
+    assert.equal(c.app.db.prepare("SELECT count(*) n FROM samples").get().n, 0);
+    assert.equal(
+      c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n,
+      history + 2,
+    );
+    assert.equal(c.app.bans.status(p.id).enabled, false);
+    await c.restart();
+    assert.equal(
+      c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n,
+      history + 2,
+    );
+  }));
+
+test("3.7.1可疑用户观察期保留，规则关闭不自动封禁，预览无写入", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth),
+      url = `/api/panels/${p.id}`;
+    await send(c, p, [event({ ua: "Browser" })]);
+    await control(c, p);
+    await c.api(url + "/ban", { enabled: true, observeMinutes: 30 }, auth);
+    assert.equal((await control(c, p)).tasks.length, 0);
+    evaluate(
+      c.app.db,
+      c.app.db.prepare("SELECT * FROM panels WHERE id=?").get(p.id),
+      1,
+      Date.now(),
+      c.app.geo,
+    );
+    c.app.db
+      .prepare("UPDATE risk_observation SET since=?")
+      .run(Date.now() - 31 * 60000);
+    c.app.db
+      .prepare("UPDATE ban_settings SET since=?")
+      .run(Date.now() - 31 * 60000);
+    const snapshot = c.app.db
+      .prepare("SELECT count(*) n FROM risk_history")
+      .get().n;
+    const preview = await c.api(url + "/preview", { rules: defaults }, auth);
+    assert.equal(preview.counts.suspicious, 1);
+    assert.equal(
+      c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n,
+      snapshot,
+    );
+    assert.equal((await control(c, p)).tasks.length, 1);
+    await c.api(
+      url + "/settings",
+      { name: "test", notify: false, rules: { ...defaults, uaEnabled: false } },
+      auth,
+    );
+    const panelRow = c.app.db
+      .prepare("SELECT * FROM panels WHERE id=?")
+      .get(p.id);
+    assert.equal(c.app.bans.eligible(panelRow, 1), null);
+    assert.equal(
+      (await c.api(url + "/risks", undefined, auth)).rows[0].level,
+      "suspicious",
     );
   }));

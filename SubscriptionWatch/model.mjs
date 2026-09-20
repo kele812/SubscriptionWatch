@@ -2,16 +2,19 @@ import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 
 export const defaults = {
-  multiEnabled: true,
-  multiMinutes: 10,
-  multiIpLimit: 3,
-  multiUaLimit: 3,
-  countryEnabled: true,
-  countryMinutes: 30,
-  countryLimit: 3,
-  comboEnabled: true,
-  comboMinutes: 10,
+  schema: 371,
   uaEnabled: true,
+  chinaEnabled: true,
+  foreignEnabled: true,
+  cnShortMinutes: 60,
+  cnShortLimit: 3,
+  cnLongMinutes: 720,
+  cnLongLimit: 10,
+  foreignShortMinutes: 60,
+  foreignShortLimit: 3,
+  foreignLongMinutes: 720,
+  foreignLongLimit: 10,
+  dcEnabled: true,
   uaKeywords: [
     "shadowrocket",
     "NetFlow",
@@ -29,19 +32,6 @@ export const defaults = {
     "nekobox",
     "v2box",
   ],
-  uaHours: 24,
-  ipEnabled: true,
-  ipHours: 24,
-  ipLimit: 5,
-  rateEnabled: true,
-  rateMinutes: 60,
-  rateLimit: 5,
-  chinaEnabled: true,
-  chinaMinutes: 60,
-  chinaLimit: 3,
-  dcEnabled: true,
-  dcMinutes: 10,
-  dcLimit: 3,
   dcKeywords: [
     "tencent",
     "alibaba",
@@ -56,7 +46,6 @@ export const defaults = {
   ],
   cloudflareExempt: false,
   ipWhitelist: [],
-  ownedIps: [],
   retentionDays: 0,
 };
 export function migrateRiskV33(db) {
@@ -227,39 +216,25 @@ export const setConfig = (db, key, value) =>
 export function validateRules(b) {
   b = { ...defaults, ...b };
   const r = {};
+  for (const prefix of ["cn", "foreign"])
+    for (const w of ["Short", "Long"])
+      for (const [end, max] of [
+        ["Minutes", 10080],
+        ["Limit", 1000],
+      ]) {
+        const k = prefix + w + end;
+        if (!Number.isInteger(b[k]) || b[k] < 1 || b[k] > max)
+          throw Error(k + " 超出允许范围");
+        r[k] = b[k];
+      }
   for (const k of [
     "uaEnabled",
-    "ipEnabled",
-    "rateEnabled",
     "chinaEnabled",
+    "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
-    "multiEnabled",
-    "countryEnabled",
-    "comboEnabled",
   ]) {
     if (typeof b[k] !== "boolean") throw Error("规则开关格式错误");
-    r[k] = b[k];
-  }
-  for (const [k, max] of [
-    ["multiMinutes", 10080],
-    ["multiIpLimit", 1000],
-    ["multiUaLimit", 1000],
-    ["countryMinutes", 10080],
-    ["countryLimit", 250],
-    ["comboMinutes", 10080],
-    ["uaHours", 168],
-    ["ipHours", 168],
-    ["ipLimit", 1000],
-    ["rateMinutes", 10080],
-    ["rateLimit", 10000],
-    ["chinaMinutes", 10080],
-    ["chinaLimit", 1000],
-    ["dcMinutes", 10080],
-    ["dcLimit", 1000],
-  ]) {
-    if (!Number.isInteger(b[k]) || b[k] < 1 || b[k] > max)
-      throw Error(`${k} 超出允许范围 1～${max}`);
     r[k] = b[k];
   }
   if (
@@ -296,21 +271,6 @@ export function validateRules(b) {
     ),
   ];
   if (
-    !Array.isArray(b.ownedIps) ||
-    b.ownedIps.length > 1000 ||
-    b.ownedIps.some((ip) => typeof ip !== "string" || !isIP(ip.trim()))
-  )
-    throw Error("自有节点须为完整IPv4或IPv6地址，最多1000个");
-  r.ownedIps = [
-    ...new Set(
-      b.ownedIps.map((ip) =>
-        isIP(ip.trim()) === 6
-          ? new URL(`http://[${ip.trim()}]/`).hostname.slice(1, -1)
-          : ip.trim(),
-      ),
-    ),
-  ];
-  if (
     !Array.isArray(b.dcKeywords) ||
     b.dcKeywords.length > 100 ||
     b.dcKeywords.some(
@@ -321,5 +281,5 @@ export function validateRules(b) {
   r.dcKeywords = [...new Set(b.dcKeywords.map((k) => k.trim().toLowerCase()))];
   if (r.dcEnabled && !r.dcKeywords.length)
     throw Error("启用数据中心规则需要至少一个关键词");
-  return r;
+  return { ...r, schema: 371 };
 }

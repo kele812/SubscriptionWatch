@@ -180,7 +180,7 @@ export class AccountBan {
         .get(p.id, uid);
     return risk?.active &&
       subject &&
-      riskLevel(assess(this.db, p, subject, now, this.geo)) === "high" &&
+      riskLevel(assess(this.db, p, subject, now, this.geo)) === "suspicious" &&
       subject?.verified &&
       !subject.white
       ? { risk, subject }
@@ -319,7 +319,7 @@ export class AccountBan {
           .get(panel.id);
         const rows = this.db
           .prepare(
-            "SELECT r.* FROM risks r WHERE r.panel=? AND r.active=1 AND (?=0 OR EXISTS(SELECT 1 FROM risk_observation o WHERE o.panel=r.panel AND o.uid=r.uid AND o.since<=?)) AND EXISTS(SELECT 1 FROM json_each(r.reasons) j WHERE json_extract(j.value,'$.code') IN ('ua','multi','comboChina','comboCloud','china','datacenter')) AND NOT EXISTS(SELECT 1 FROM ban_actions a WHERE a.panel=r.panel AND a.uid=r.uid AND (a.episode=r.started OR (a.origin='manual' AND a.created>=r.started) OR (a.kind='unban' AND a.status IN ('待领取','已下发','失败或待核对')))) ORDER BY r.updated LIMIT 30",
+            "SELECT r.* FROM risks r WHERE r.panel=? AND r.active=1 AND (?=0 OR EXISTS(SELECT 1 FROM risk_observation o WHERE o.panel=r.panel AND o.uid=r.uid AND o.since<=?)) AND EXISTS(SELECT 1 FROM json_each(r.reasons) j WHERE json_extract(j.value,'$.code') IN ('ua','cloud','cn60','cn720','foreign60','foreign720')) AND NOT EXISTS(SELECT 1 FROM ban_actions a WHERE a.panel=r.panel AND a.uid=r.uid AND (a.episode=r.started OR (a.origin='manual' AND a.created>=r.started) OR (a.kind='unban' AND a.status IN ('待领取','已下发','失败或待核对')))) ORDER BY r.updated LIMIT 30",
           )
           .all(
             panel.id,

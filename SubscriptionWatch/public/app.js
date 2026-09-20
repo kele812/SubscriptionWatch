@@ -79,7 +79,8 @@ function riskDetail(r) {
       阈值: x.threshold ?? "旧记录未保存",
       计数说明: x.counting || "",
       合并前请求数: x.rawCount,
-      窗口分钟: x.windowMinutes ?? "旧记录未保存",
+      窗口分钟:
+        x.windowMinutes === null ? null : (x.windowMinutes ?? "旧记录未保存"),
       窗口开始: format(x.windowStart),
       窗口结束: format(x.windowEnd),
       预计条件到期: format(x.expires),
@@ -164,7 +165,7 @@ function detail(data) {
           reason.窗口分钟 % 60 === 0
             ? `${reason.窗口分钟 / 60} 小时`
             : `${reason.窗口分钟} 分钟`;
-        summary.textContent = `在最近 ${duration}内（${reason.窗口开始} 至 ${reason.窗口结束}），共有 ${stats.totalIps} 个不同 IP 请求同一订阅，共请求 ${stats.totalRequests} 次。最终计入 ${reason.实际数量} ${stats.unit}，达到 ${reason.阈值} ${stats.unit}的触发阈值。`;
+        summary.textContent = `${reason.窗口分钟 === null ? "本次新请求上报" : "在最近 " + duration + "内"}（${reason.窗口开始} 至 ${reason.窗口结束}），共有 ${stats.totalIps} 个不同 IP 请求同一订阅，共请求 ${stats.totalRequests} 次。最终计入 ${reason.实际数量} ${stats.unit}，达到 ${reason.阈值} ${stats.unit}的触发阈值。`;
         card.append(summary);
         for (const group of stats.exclusions) {
           const line = document.createElement("p");
@@ -183,7 +184,7 @@ function detail(data) {
       }
       for (const text of [
         `规则版本：${reason.规则版本} ${reason.附加条件}`,
-        `实际 ${reason.实际数量} / 阈值 ${reason.阈值} · 窗口 ${reason.窗口分钟} 分钟`,
+        `实际 ${reason.实际数量} / 阈值 ${reason.阈值} · ${reason.窗口分钟 === null ? "逐次检查，无时间窗口" : "窗口 " + reason.窗口分钟 + " 分钟"}`,
         `${reason.窗口开始} 至 ${reason.窗口结束}`,
         `原触发条件预计到期（不自动解除风险）：${reason.预计条件到期} · ${reason.证据说明}`,
       ]) {
@@ -243,9 +244,7 @@ function grade(level) {
   const span = document.createElement("span");
   span.className = "badge risk-" + level;
   span.textContent =
-    { high: "高风险", medium: "中风险", low: "低风险", none: "已解除" }[
-      level
-    ] || "未知";
+    { suspicious: "可疑用户", none: "已解除" }[level] || "未知";
   return span;
 }
 function ask(title, help, fields, fn) {
@@ -486,10 +485,7 @@ async function refresh() {
         rows.map((r) => [
           format(r.ts),
           r.uid + " / " + r.email,
-          r.ip +
-            (panel().rules.ownedIps?.includes(r.ip) ? " · 自有节点" : "") +
-            "\n" +
-            geoText(r.geo),
+          r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
           r.status,
           button("查看", () =>
@@ -500,7 +496,7 @@ async function refresh() {
               来源IP: r.ip,
               归属地: r.geo,
               原始UA: r.ua,
-              自有节点: panel().rules.ownedIps?.includes(r.ip) ? "是" : "否",
+
               直接连接IP: r.peer_ip,
               IP取值依据: r.ip_source,
               状态: r.status,
@@ -558,7 +554,7 @@ async function refresh() {
               : []),
             button("删除记录", () =>
               ask(
-                "删除风险用户记录",
+                "删除可疑用户记录",
                 "保留访问历史和评估历史，旧记录视为已处理。",
                 [pwd],
                 (b) =>
@@ -641,7 +637,7 @@ async function refresh() {
       f.elements.observeMinutes.value = config.observeMinutes;
       table(
         "#observations",
-        ["观察中的用户", "持续高风险起点", "观察期结束（非保证执行）"],
+        ["观察中的用户", "持续可疑用户起点", "观察期结束（非保证执行）"],
         config.observing.map((x) => [
           `${x.uid} / ${x.email}`,
           format(x.since),
@@ -778,43 +774,23 @@ function readRuleForm() {
     rules = {};
   for (const k of [
     "uaEnabled",
-    "ipEnabled",
-    "rateEnabled",
     "chinaEnabled",
+    "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
-    "multiEnabled",
-    "countryEnabled",
-    "comboEnabled",
   ])
     rules[k] = f.elements[k].checked;
-  for (const k of [
-    "multiMinutes",
-    "multiIpLimit",
-    "multiUaLimit",
-    "countryMinutes",
-    "countryLimit",
-    "comboMinutes",
-    "uaHours",
-    "ipHours",
-    "ipLimit",
-    "rateMinutes",
-    "rateLimit",
-    "chinaMinutes",
-    "chinaLimit",
-    "dcMinutes",
-    "dcLimit",
-  ])
-    rules[k] = Number(f.elements[k].value);
-  rules.uaKeywords = f.elements.uaKeywords.value
-    .split(/\r?\n/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-  for (const k of ["dcKeywords", "ipWhitelist", "ownedIps"])
+  for (const k of ["uaKeywords", "dcKeywords", "ipWhitelist"])
     rules[k] = f.elements[k].value
       .split(/\r?\n/)
       .map((x) => x.trim())
       .filter(Boolean);
+  for (const prefix of ["cn", "foreign"])
+    for (const w of ["Short", "Long"])
+      for (const end of ["Minutes", "Limit"]) {
+        const k = prefix + w + end;
+        rules[k] = Number(f.elements[k].value);
+      }
   return { ...rules, retentionDays: panel().rules.retentionDays };
 }
 $("#rulesForm").onsubmit = run(async () => {
@@ -856,7 +832,7 @@ $("#clearVisits").onclick = () => {
   const url = endpoint("history/clear");
   ask(
     "清空访问历史",
-    "确认清空此面板全部访问历史？不删除风险用户和评估历史。",
+    "确认清空此面板全部访问历史？不删除可疑用户和评估历史。",
     [],
     () => api(url, { confirm: true }),
   );
@@ -990,71 +966,15 @@ function updateRuleConditions(dirty = true) {
     v = (n) => f.elements[n].value,
     on = (n) => f.elements[n].checked;
   const items = [
-    [
-      "uaEnabled",
-      "最近" + v("uaHours") + "小时出现不匹配允许关键词或空UA，标记高风险",
-    ],
-    [
-      "ipEnabled",
-      "最近" +
-        v("ipHours") +
-        "小时达到" +
-        v("ipLimit") +
-        "个不同IP，标记中风险；自有节点、Cloudflare 节点和豁免请求不计入",
-    ],
-    [
-      "rateEnabled",
-      "最近" +
-        v("rateMinutes") +
-        "分钟有效获取达到" +
-        v("rateLimit") +
-        "次，标记中风险",
-    ],
+    ["uaEnabled", "新请求的UA为空或不匹配允许关键词，标记为可疑用户"],
     [
       "chinaEnabled",
-      "最近" +
-        v("chinaMinutes") +
-        "分钟达到" +
-        v("chinaLimit") +
-        "个不同国内IP，标记中风险",
+      `${v("cnShortMinutes")}分钟超过${v("cnShortLimit")}个或${v("cnLongMinutes")}分钟超过${v("cnLongLimit")}个不同中国大陆IP成功拉取，标记为可疑用户`,
     ],
+    ["dcEnabled", "云厂商组织名匹配关键词且成功拉取一次，标记为可疑用户"],
     [
-      "dcEnabled",
-      "最近" +
-        v("dcMinutes") +
-        "分钟达到" +
-        v("dcLimit") +
-        "个不同云服务器IP，标记中风险",
-    ],
-    [
-      "multiEnabled",
-      "最近" +
-        v("multiMinutes") +
-        "分钟同时达到" +
-        v("multiIpLimit") +
-        "个不同IP和" +
-        v("multiUaLimit") +
-        "种完整原始UA，标记高风险",
-    ],
-    [
-      "countryEnabled",
-      "最近" +
-        v("countryMinutes") +
-        "分钟达到" +
-        v("countryLimit") +
-        "个不同国家或地区，标记低风险",
-    ],
-    [
-      "comboEnabled",
-      "最近" +
-        v("comboMinutes") +
-        "分钟，有效获取达到" +
-        v("rateLimit") +
-        "次，且达到" +
-        v("chinaLimit") +
-        "个国内IP或" +
-        v("dcLimit") +
-        "个云服务器IP；对应单项规则开启时升级高风险",
+      "foreignEnabled",
+      `${v("foreignShortMinutes")}分钟超过${v("foreignShortLimit")}个或${v("foreignLongMinutes")}分钟超过${v("foreignLongLimit")}个不同非中国大陆IP成功拉取，标记为可疑用户`,
     ],
   ];
   for (const [key, text] of items) {
@@ -1091,14 +1011,7 @@ $("#previewRules").onclick = run(async () => {
       return;
     }
     $("#previewResult").textContent =
-      "预计低风险 " +
-      r.counts.low +
-      " 人，中风险 " +
-      r.counts.medium +
-      " 人，高风险 " +
-      r.counts.high +
-      " 人；" +
-      r.note;
+      "按当前条件预计可疑用户 " + r.counts.suspicious + " 人；" + r.note;
   } finally {
     button.disabled = false;
   }

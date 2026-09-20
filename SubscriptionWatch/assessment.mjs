@@ -1,19 +1,22 @@
 import { defaults } from "./model.mjs";
-
-// Pure assessment: no database writes, notification or account-control effects.
-export function assess(db, panel, subject, now, geo) {
+// Only fresh accepted events may create UA/cloud signals; maintenance never replays them.
+export function assess(db, panel, subject, now, geo, fresh = []) {
   const r = { ...defaults, ...JSON.parse(panel.rules) };
   if (subject.white) return [];
-  const horizon = Math.max(
-    r.uaEnabled ? r.uaHours * 60 : 0,
-    r.ipEnabled ? r.ipHours * 60 : 0,
-    r.rateEnabled ? r.rateMinutes : 0,
-    r.chinaEnabled ? r.chinaMinutes : 0,
-    r.dcEnabled ? r.dcMinutes : 0,
-    r.multiEnabled ? r.multiMinutes : 0,
-    r.countryEnabled ? r.countryMinutes : 0,
-    r.comboEnabled ? r.comboMinutes : 0,
-  );
+  const decorate = (e) => ({ ...e, geo: geo?.lookup(e.ip) || {} });
+  const exempt = (e) =>
+    r.ipWhitelist.includes(e.ip)
+      ? "IP 白名单"
+      : r.cloudflareExempt && /\bcloudflare\b/i.test(e.geo.organization || "")
+        ? "Cloudflare 豁免"
+        : "";
+  const cloud = (e) =>
+    r.dcKeywords.some((k) =>
+      (e.geo.organization || "").toLowerCase().includes(k.toLowerCase()),
+    );
+  const badUa = (e) =>
+    !r.uaKeywords.some((k) => e.ua.toLowerCase().includes(k.toLowerCase()));
+  const success = (e) => e.status >= 200 && e.status < 300;
   const observed = db
     .prepare(
       "SELECT ts,ip,ua,status FROM samples WHERE panel=? AND uid=? AND ts>? AND ts<=? ORDER BY ts DESC,id DESC",
@@ -21,306 +24,165 @@ export function assess(db, panel, subject, now, geo) {
     .all(
       panel.id,
       subject.uid,
-      Math.max(subject.dismissed, now - horizon * 60000),
+      Math.max(
+        subject.dismissed,
+        now -
+          Math.max(
+            r.cnShortMinutes,
+            r.cnLongMinutes,
+            r.foreignShortMinutes,
+            r.foreignLongMinutes,
+          ) *
+            60000,
+      ),
       now,
     )
-    .map((e) => ({ ...e, geo: geo?.lookup(e.ip) || {} }));
-  const exemption = (e) =>
-    r.ipWhitelist.includes(e.ip)
-      ? "IP 白名单"
-      : r.cloudflareExempt && /\bcloudflare\b/i.test(e.geo.organization || "")
-        ? "Cloudflare 请求豁免"
-        : "";
-  const all = observed.filter((e) => !exemption(e));
-  const success = all.filter((e) => e.status >= 200 && e.status < 300);
-  const within = (rows, minutes) =>
-    rows.filter((e) => e.ts > now - minutes * 60000);
-  const unique = (rows, key) =>
-    [...new Map([...rows].reverse().map((e) => [key(e), e])).values()].sort(
-      (a, b) => b.ts - a.ts,
-    );
-  const effective = (rows) => {
-    const seen = new Set();
-    return rows.filter((e) => {
-      if (e.geo.countryCode !== "CN") return true;
-      const key = JSON.stringify([e.ip, e.ua]);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
-  const china = (e) => !r.ownedIps.includes(e.ip) && e.geo.countryCode === "CN";
-  const cloud = (e) =>
-    !r.ownedIps.includes(e.ip) &&
-    r.dcKeywords.some((k) =>
-      (e.geo.organization || "").toLowerCase().includes(k.toLowerCase()),
-    );
-  const reasons = [];
-  function add(
-    code,
-    label,
-    minutes,
-    threshold,
-    count,
-    expires,
-    rows,
-    extra = {},
-  ) {
-    // Keep representative IP/UA pairs first, so repeated downloads cannot hide other IPs.
-    const windowRows = within(observed, minutes);
-    const selected = new Set(rows);
-    const exclusion = (e) => {
-      if (exemption(e)) return exemption(e);
-      if (code === "ip" && /\bcloudflare\b/i.test(e.geo.organization || ""))
-        return "Cloudflare 节点";
-      if (selected.has(e)) return "";
-      if (code !== "ua" && !(e.status >= 200 && e.status < 300))
-        return "请求未成功或缺少响应状态";
-      if (
-        ["ip", "china", "datacenter", "country"].includes(code) &&
-        r.ownedIps.includes(e.ip)
-      )
-        return "自有节点";
-      if (code === "ua") return "UA 符合允许关键词";
-      if (code === "china") return "非中国大陆或归属未知";
-      if (code === "datacenter") return "未匹配数据中心关键词";
-      if (code === "country") return "国家或地区未知";
-      return "不符合本条规则条件";
-    };
-    const groups = new Map();
-    for (const e of windowRows) {
-      const why = exclusion(e);
-      if (!why) continue;
-      if (!groups.has(why)) groups.set(why, []);
-      groups.get(why).push(e);
+    .map(decorate);
+  const incoming = fresh
+    .filter((e) => e.ts > subject.dismissed)
+    .sort((a, b) => b.ts - a.ts)
+    .map(decorate);
+  const reasons = [],
+    unique = (rows) => [...new Set(rows.map((e) => e.ip))];
+  function add(code, label, rows, all, minutes, threshold, why) {
+    const selected = new Set(rows),
+      groups = new Map(),
+      latest = new Map();
+    for (const e of rows)
+      latest.set(e.ip, Math.max(latest.get(e.ip) || 0, e.ts));
+    for (const e of all)
+      if (!selected.has(e)) {
+        const reason = exempt(e) || why(e);
+        if (!groups.has(reason)) groups.set(reason, []);
+        groups.get(reason).push(e);
+      }
+    const pairs = new Map();
+    for (const e of [...rows, ...all.filter((e) => !selected.has(e))]) {
+      const key = JSON.stringify([
+        e.ip,
+        e.ua,
+        selected.has(e),
+        selected.has(e) ? "" : exempt(e) || why(e),
+      ]);
+      if (!pairs.has(key)) pairs.set(key, e);
     }
-    // Include exclusions, without letting them hide triggering evidence.
-    const pairs = [
-      ...unique(rows, (e) => JSON.stringify([e.ip, e.ua])),
-      ...unique(
-        windowRows.filter((e) => !selected.has(e)),
-        (e) => JSON.stringify([e.ip, e.ua, exclusion(e)]),
-      ),
-    ];
     reasons.push({
       code,
       label,
-      count,
+      count: minutes ? unique(rows).length : rows.length,
       threshold,
-      expires,
+      ruleVersion: "3.7.1",
+      ruleSnapshot: r,
       windowMinutes: minutes,
-      windowStart: now - minutes * 60000,
+      windowStart: minutes
+        ? now - minutes * 60000
+        : Math.min(...all.map((e) => e.ts)),
       windowEnd: now,
-      ruleVersion: "3.7",
+      expires: minutes
+        ? [...latest.values()].sort((a, b) => b - a)[threshold - 1] +
+          minutes * 60000
+        : null,
+      ips: unique(rows).slice(0, 100),
       accounting: {
-        totalIps: new Set(windowRows.map((e) => e.ip)).size,
-        totalRequests: windowRows.length,
-        includedIps: new Set(rows.map((e) => e.ip)).size,
+        totalIps: unique(all).length,
+        totalRequests: all.length,
+        includedIps: unique(rows).length,
         includedRequests: rows.length,
-        mergedRequests: ["rate", "comboChina", "comboCloud"].includes(code)
-          ? rows.length - effective(rows).length
-          : 0,
-        unit:
-          code === "ua" || code === "rate"
-            ? "次"
-            : code === "country"
-              ? "个国家或地区"
-              : "个不同 IP",
+        mergedRequests: 0,
+        unit: minutes ? "个不同 IP" : "次",
         exclusions: [...groups].map(([reason, entries]) => ({
           reason,
           requests: entries.length,
-          ipCount: new Set(entries.map((e) => e.ip)).size,
-          ips: [...new Set(entries.map((e) => e.ip))].slice(0, 100),
+          ipCount: unique(entries).length,
+          ips: unique(entries).slice(0, 100),
         })),
       },
-      ruleSnapshot: Object.fromEntries(
-        Object.entries(r).filter(
-          ([k]) => !["ipWhitelist", "ownedIps", "retentionDays"].includes(k),
-        ),
-      ),
-      ips: [...new Set(rows.map((e) => e.ip))].slice(0, 100),
-      evidence: pairs.slice(0, 100).map((e) => ({
+      evidence: [...pairs.values()].slice(0, 100).map((e) => ({
         time: e.ts,
         ip: e.ip,
         ua: e.ua,
         status: e.status,
         geo: e.geo,
-        owned: r.ownedIps.includes(e.ip),
         included: selected.has(e),
-        exclusion: exclusion(e),
-        anomaly:
-          /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|0\.)/.test(
-            e.ip,
-          ) || /^(::1$|f[cd]|fe[89ab])/i.test(e.ip)
-            ? "回环、内网或链路本地地址，请检查真实 IP 采集"
-            : !e.geo.countryCode
-              ? "归属地未知"
-              : "",
-        components:
-          code.startsWith("combo") && selected.has(e)
-            ? [
-                "请求次数统计",
-                ...((code === "comboChina" ? china(e) : cloud(e))
-                  ? ["不同 IP 统计"]
-                  : []),
-              ]
-            : undefined,
+        exclusion: selected.has(e) ? "" : exempt(e) || why(e),
       })),
-      evidenceLimited: pairs.length > 100,
-      evidenceCount: pairs.length,
-      ...extra,
+      evidenceLimited: pairs.size > 100,
+      evidenceCount: pairs.size,
     });
   }
-  if (r.uaEnabled) {
-    const bad = within(all, r.uaHours * 60).filter(
-      (e) =>
-        !r.uaKeywords.some((k) => e.ua.toLowerCase().includes(k.toLowerCase())),
-    );
-    if (bad.length)
-      add(
-        "ua",
-        "使用非指定客户端获取订阅",
-        r.uaHours * 60,
-        1,
-        bad.length,
-        bad[0].ts + r.uaHours * 3600000,
-        bad,
-        { ua: bad[0].ua, ip: bad[0].ip },
-      );
-  }
-  for (const [code, enabled, minutes, limit, filter, label] of [
+  for (const [enabled, code, label, predicate, why] of [
     [
-      "ip",
-      r.ipEnabled,
-      r.ipHours * 60,
-      r.ipLimit,
-      (e) =>
-        !r.ownedIps.includes(e.ip) &&
-        !/\bcloudflare\b/i.test(e.geo.organization || ""),
-      "多个 IP 获取同一订阅",
+      r.uaEnabled,
+      "ua",
+      "非指定客户端获取订阅",
+      badUa,
+      () => "UA 符合允许关键词",
     ],
     [
-      "china",
-      r.chinaEnabled,
-      r.chinaMinutes,
-      r.chinaLimit,
-      china,
-      "短时间内多个中国大陆 IP 获取订阅",
-    ],
-    [
-      "datacenter",
       r.dcEnabled,
-      r.dcMinutes,
-      r.dcLimit,
-      cloud,
-      "多个云服务器 IP 获取订阅",
+      "cloud",
+      "云服务器 IP 获取订阅",
+      (e) => success(e) && cloud(e),
+      (e) => (!success(e) ? "请求未成功" : "未匹配云厂商关键词"),
     ],
   ]) {
     if (!enabled) continue;
-    const rows = within(success, minutes).filter(filter),
-      ips = unique(rows, (e) => e.ip);
-    if (ips.length >= limit)
-      add(
-        code,
-        label,
-        minutes,
-        limit,
-        ips.length,
-        ips[limit - 1].ts + minutes * 60000,
-        rows,
-      );
+    const rows = incoming.filter((e) => !exempt(e) && predicate(e));
+    if (rows.length) add(code, label, rows, incoming, null, 1, why);
+    else {
+      const saved = db
+        .prepare(
+          "SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1",
+        )
+        .get(panel.id, subject.uid);
+      const old =
+        saved && JSON.parse(saved.reasons).find((e) => e.code === code);
+      if (
+        old &&
+        (old.evidence || []).some(
+          (e) =>
+            e.included !== false &&
+            !exempt(decorate(e)) &&
+            predicate(decorate(e)),
+        )
+      )
+        reasons.push(old);
+    }
   }
-  if (r.rateEnabled) {
-    const rows = within(success, r.rateMinutes),
-      hits = effective(rows);
-    if (hits.length >= r.rateLimit)
-      add(
-        "rate",
-        "频繁获取同一订阅",
-        r.rateMinutes,
-        r.rateLimit,
-        hits.length,
-        hits[r.rateLimit - 1].ts + r.rateMinutes * 60000,
-        rows,
-        {
-          rawCount: rows.length,
-          counting:
-            "仅统计HTTP 2xx；同一个中国大陆IP且原始UA完全相同合并为1次；国外或未知IP逐次计数；白名单不计数",
-        },
-      );
-  }
-  if (r.multiEnabled) {
-    const rows = within(success, r.multiMinutes),
-      ips = unique(rows, (e) => e.ip),
-      uas = unique(rows, (e) => e.ua);
-    if (ips.length >= r.multiIpLimit && uas.length >= r.multiUaLimit)
-      add(
-        "multi",
-        "多个 IP 和不同 UA 同时获取订阅",
-        r.multiMinutes,
-        r.multiIpLimit,
-        ips.length,
-        Math.min(ips[r.multiIpLimit - 1].ts, uas[r.multiUaLimit - 1].ts) +
-          r.multiMinutes * 60000,
-        rows,
-        { uaCount: uas.length, uaThreshold: r.multiUaLimit },
-      );
-  }
-  if (r.countryEnabled) {
-    const rows = within(success, r.countryMinutes).filter(
+  for (const [enabled, code, label, isRegion] of [
+    [
+      r.chinaEnabled,
+      "cn",
+      "多个中国大陆 IP 获取订阅",
+      (e) => e.geo.countryCode === "CN",
+    ],
+    [
+      r.foreignEnabled,
+      "foreign",
+      "多个非中国大陆 IP 获取订阅",
       (e) =>
-        !r.ownedIps.includes(e.ip) &&
         /^[A-Z]{2}$/.test(e.geo.countryCode || "") &&
-        !["XX", "ZZ"].includes(e.geo.countryCode),
-    );
-    const countries = unique(rows, (e) => e.geo.countryCode);
-    if (countries.length >= r.countryLimit)
-      add(
-        "country",
-        "短时间跨多个国家或地区获取订阅",
-        r.countryMinutes,
-        r.countryLimit,
-        countries.length,
-        countries[r.countryLimit - 1].ts + r.countryMinutes * 60000,
-        rows,
-        { countries: countries.map((e) => e.geo.countryCode) },
-      );
-  }
-  if (r.comboEnabled && r.rateEnabled) {
-    // Both components use the SAME rolling window; older anomalies cannot combine.
-    const rows = within(success, r.comboMinutes),
-      hits = effective(rows);
-    if (hits.length >= r.rateLimit)
-      for (const [enabled, filter, limit, code, label] of [
-        [
-          r.chinaEnabled,
-          china,
-          r.chinaLimit,
-          "comboChina",
-          "国内多IP与频繁获取同时触发",
-        ],
-        [
-          r.dcEnabled,
-          cloud,
-          r.dcLimit,
-          "comboCloud",
-          "云服务器多IP与频繁获取同时触发",
-        ],
-      ]) {
-        const ips = unique(rows.filter(filter), (e) => e.ip);
-        if (enabled && ips.length >= limit)
-          add(
-            code,
-            label,
-            r.comboMinutes,
-            limit,
-            ips.length,
-            Math.min(ips[limit - 1].ts, hits[r.rateLimit - 1].ts) +
-              r.comboMinutes * 60000,
-            rows,
-            { requestCount: hits.length, requestThreshold: r.rateLimit },
-          );
-      }
+        !["CN", "XX", "ZZ"].includes(e.geo.countryCode),
+    ],
+  ]) {
+    if (!enabled) continue;
+    for (const [w, suffix] of [
+      ["Short", "60"],
+      ["Long", "720"],
+    ]) {
+      const minutes = r[code + w + "Minutes"],
+        threshold = r[code + w + "Limit"] + 1;
+      const all = observed.filter((e) => e.ts > now - minutes * 60000),
+        rows = all.filter((e) => !exempt(e) && success(e) && isRegion(e));
+      if (unique(rows).length >= threshold)
+        add(`${code}${suffix}`, label, rows, all, minutes, threshold, (e) =>
+          !success(e)
+            ? "请求未成功或状态未知"
+            : !e.geo.countryCode || ["XX", "ZZ"].includes(e.geo.countryCode)
+              ? "归属未知"
+              : "不属于本条规则的地域",
+        );
+    }
   }
   return reasons;
 }
