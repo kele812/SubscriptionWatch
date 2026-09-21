@@ -62,6 +62,24 @@ function button(label, fn) {
   b.onclick = run(fn);
   return b;
 }
+function riskCollectionAction(id, user, collecting) {
+  return button(collecting ? "取消采集" : "开启采集", () =>
+    ask(
+      collecting ? "取消用户访问采集" : "开启用户访问采集",
+      `用户 ${user.uid} / ${user.email}。` +
+        (collecting
+          ? "取消后不再接收该用户的新访问记录，已有记录继续按3天保留规则处理。"
+          : "将加入当前面板的指定用户采集。需已接入采集节点，只记录开启后新连接的目标域名或IP，记录保留3天。"),
+      [],
+      () =>
+        api(`/api/panels/${id}/destinations/user`, {
+          uid: user.uid,
+          email: user.email,
+          enabled: !collecting,
+        }),
+    ),
+  );
+}
 function riskDetail(r) {
   return {
     用户ID: r.uid,
@@ -525,7 +543,7 @@ async function refresh() {
           button("移除", () =>
             ask(
               "移除采集节点",
-              "该节点将不能再上报，已有代理访问记录也会删除。",
+              "该节点将不能再上报，已有用户访问记录也会删除。",
               [pwd],
               async (b) => {
                 await api(endpoint("destinations/node/remove"), {
@@ -597,6 +615,8 @@ async function refresh() {
       $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;
     }
     if (panelId && tab === "risk") {
+      const collection = await read(endpoint("destinations/settings"));
+      const collectingUsers = new Map(collection.users.map((u) => [u.uid, u]));
       rows = (
         await read(
           endpoint("risks") +
@@ -606,7 +626,15 @@ async function refresh() {
       const id = panelId;
       table(
         "#riskTable",
-        ["用户", "风险等级", "风险原因", "最近账号操作", "更新时间", "操作"],
+        [
+          "用户",
+          "风险等级",
+          "风险原因",
+          "最近账号操作",
+          "更新时间",
+          "访问采集",
+          "操作",
+        ],
         rows.map((r) => [
           r.uid + " / " + r.email,
           grade(r.level),
@@ -615,8 +643,15 @@ async function refresh() {
             ? `${r.accountAction.kind === "unban" ? "解封" : r.accountAction.origin === "manual" ? "手动封禁" : "自动封禁"} / ${r.accountAction.status}`
             : "—",
           format(r.updated),
+          collectingUsers.has(r.uid)
+            ? collectingUsers.get(r.uid).email ===
+              collectingUsers.get(r.uid).current_email
+              ? "采集中"
+              : "已暂停（用户资料变化）"
+            : "未开启",
           actions(
             button("详情", () => detail(riskDetail(r))),
+            riskCollectionAction(id, r, collectingUsers.has(r.uid)),
             button("取消风险", () =>
               ask("取消风险", "旧记录不重复触发，新增异常仍可标记。", [], () =>
                 api(`/api/panels/${id}/resolve`, { uid: r.uid }),
@@ -831,8 +866,8 @@ $("#destinationNext").onclick = run(async () => {
 });
 $("#clearDestinations").onclick = () =>
   ask(
-    "清空代理访问记录",
-    "只删除当前面板的代理访问记录，不删除订阅记录和风险评估。",
+    "清空用户访问记录",
+    "只删除当前面板的用户访问记录，不删除订阅记录和风险评估。",
     [pwd],
     async (b) => {
       await api(endpoint("destinations/clear"), b);
