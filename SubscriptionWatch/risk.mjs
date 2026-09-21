@@ -1,4 +1,5 @@
 import { assess } from "./assessment.mjs";
+import { collectBlacklistedIPs } from "./blacklist.mjs";
 export const riskLevel = (reasons) => (reasons.length ? "suspicious" : "none");
 export const levelLabel = (level) => (level === "none" ? "已解除" : "可疑用户");
 export function evaluate(db, panel, uid, now = Date.now(), geo, fresh = []) {
@@ -9,7 +10,12 @@ export function evaluate(db, panel, uid, now = Date.now(), geo, fresh = []) {
   const old = db
     .prepare("SELECT * FROM risks WHERE panel=? AND uid=?")
     .get(panel.id, uid);
-  const current = assess(db, panel, subject, now, geo, fresh);
+  const contributed = [];
+  const current = assess(db, panel, subject, now, geo, fresh, (rows) =>
+    contributed.push(...rows),
+  );
+  if (contributed.length)
+    collectBlacklistedIPs(db, panel, uid, contributed, now);
   // Keep triggered reasons until explicit handling; expiry only affects live checks.
   const saved = old?.active && !subject.white ? JSON.parse(old.reasons) : [];
   const reasons = [

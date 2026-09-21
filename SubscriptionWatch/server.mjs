@@ -42,6 +42,13 @@ import {
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { evaluate, resolveRisk, riskRows, riskLevel } from "./risk.mjs";
+import {
+  blacklistRows,
+  configureBlacklist,
+  removeBlacklistedIP,
+  importBlacklistHistory,
+  cleanBlacklist,
+} from "./blacklist.mjs";
 import { GeoDatabase, parseGeoConfig } from "./geo.mjs";
 import { AccountBan } from "./ban.mjs";
 import { Telegram } from "./telegram.mjs";
@@ -209,6 +216,7 @@ export function createApp({
     if (restoring) return;
     const now = Date.now();
     cleanDestinations(db, now);
+    cleanBlacklist(db, now);
     for (const [k, v] of sessions) if (v.until < now) sessions.delete(k);
     for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
     transaction(db, () => {
@@ -541,6 +549,33 @@ export function createApp({
         if ((backupBusy || importBusy) && method === "POST")
           fail(409, "正在备份，请稍后修改IP数据库");
         const b = method === "POST" ? await body(req) : {};
+        if (route.startsWith("/api/admin/ip-blacklist")) {
+          if (!account.admin) fail(403, "无权管理共享IP黑名单");
+          if (route === "/api/admin/ip-blacklist" && method === "GET")
+            return json(res, 200, blacklistRows(db, u.searchParams));
+          if (
+            route === "/api/admin/ip-blacklist/settings" &&
+            method === "POST"
+          ) {
+            transaction(db, () => configureBlacklist(db, b));
+            return json(res, 200, { ok: true });
+          }
+          if (route === "/api/admin/ip-blacklist/remove" && method === "POST") {
+            throttle("sensitive:" + account.id);
+            if (!(await verify(b.password, account.password_hash)))
+              fail(400, "当前账号密码错误");
+            removeBlacklistedIP(db, b.ip);
+            return json(res, 200, { ok: true });
+          }
+          if (route === "/api/admin/ip-blacklist/import" && method === "POST")
+            return json(
+              res,
+              200,
+              transaction(db, () =>
+                importBlacklistHistory(db, b.before ?? 0, Date.now(), geo),
+              ),
+            );
+        }
         if (route === "/api/admin/geo" && method === "GET")
           return json(res, 200, geo.status());
         if (route === "/api/admin/geo/credentials" && method === "POST") {
@@ -684,7 +719,7 @@ export function createApp({
           return json(res, 200, {
             counts,
             at: now,
-            note: "地域规则按保留样本预览；UA和云服务器仅预览已有触发证据，新请求才会新增标记。已保留的旧标记不会因预览解除。不发通知、不封禁。",
+            note: "地域规则按保留样本预览；UA、云服务器和黑名单仅预览已有触发证据，新请求才会新增标记。预览不收集黑名单，不发通知、不封禁，旧标记不自动解除。",
           });
         }
         if (action === "settings" && method === "POST") {
@@ -971,7 +1006,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.8.1 ready");
+  console.log("Subscription Watch v3.8.2 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

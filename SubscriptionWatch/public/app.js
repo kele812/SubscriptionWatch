@@ -1,6 +1,8 @@
 const $ = (s) => document.querySelector(s);
 let destinationBefore = null,
   destinationNext = null;
+let blacklistPage = 1,
+  blacklistSettingsLoaded = false;
 let me,
   panels = [],
   panelId = 0,
@@ -117,6 +119,15 @@ function riskDetail(r) {
         排除原因: e.exclusion,
         地址提示: e.anomaly,
         参与统计: e.components,
+        黑名单来源面板: e.blacklistSourcePanel,
+        黑名单来源用户: e.blacklistSourceUser,
+        黑名单加入时间: e.blacklistAdded ? format(e.blacklistAdded) : undefined,
+        黑名单到期时间:
+          e.blacklistExpires === Number.MAX_SAFE_INTEGER
+            ? "永久保留"
+            : e.blacklistExpires
+              ? format(e.blacklistExpires)
+              : undefined,
       })),
     })),
   };
@@ -237,7 +248,13 @@ function detail(data) {
             p.className = "evidence-trigger";
           line.append(p);
         }
-        for (const text of [hit.地址提示, hit.参与统计?.join("、")]) {
+        for (const text of [
+          hit.地址提示,
+          hit.参与统计?.join("、"),
+          hit.黑名单来源面板
+            ? `黑名单来源：${hit.黑名单来源面板} · 用户 ${hit.黑名单来源用户} · 加入 ${hit.黑名单加入时间} · 到期 ${hit.黑名单到期时间}`
+            : "",
+        ]) {
           if (!text) continue;
           const note = document.createElement("p");
           note.textContent = text;
@@ -502,6 +519,52 @@ async function refresh() {
         `采集状态：${s.panel.health} · 最近上报：${format(s.panel.last_seen)} · 待发送 ${s.panel.pending} · 丢弃 ${s.panel.dropped} · 过期 ${s.panel.expired} · 上报失败 ${s.panel.failures ?? "旧插件未提供"} · 插件 ${s.panel.version || "未连接"}（计数为最近一次上报快照，离线期间未知；Redis计数可能过期归零）`;
     }
     let rows = [];
+    if (tab === "ipBlacklist") {
+      const q = new URLSearchParams(new FormData($("#blacklistFilters")));
+      q.set("page", blacklistPage);
+      const data = await read("/api/admin/ip-blacklist?" + q);
+      if (!blacklistSettingsLoaded) {
+        const f = $("#blacklistSettings");
+        f.elements.enabled.checked = data.settings.enabled;
+        f.elements.recording.checked = data.settings.recording;
+        f.elements.days.value = data.settings.days;
+        blacklistSettingsLoaded = true;
+      }
+      table(
+        "#blacklistTable",
+        [
+          "IP",
+          "来源面板",
+          "触发用户ID",
+          "来源访问时间",
+          "加入时间",
+          "到期时间",
+          "操作",
+        ],
+        data.rows.map((r) => [
+          r.ip,
+          `${r.source_name}（ID ${r.source_panel}）`,
+          r.source_uid,
+          format(r.source_ts),
+          format(r.added),
+          r.expires === Number.MAX_SAFE_INTEGER
+            ? "永久保留"
+            : format(r.expires),
+          button("移除", () =>
+            ask(
+              "移除共享黑名单 IP",
+              `${r.ip} 将对所有面板停止生效。旧证据不会重复加入，新异常证据仍可重新加入；不会解除已有可疑标记。`,
+              [pwd],
+              (b) => api("/api/admin/ip-blacklist/remove", { ...b, ip: r.ip }),
+            ),
+          ),
+        ]),
+      );
+      $("#blacklistPageInfo").textContent =
+        `共 ${data.total} 个有效IP · 第 ${blacklistPage} 页`;
+      $("#blacklistPrevious").disabled = blacklistPage <= 1;
+      $("#blacklistNext").disabled = blacklistPage * 100 >= data.total;
+    }
     if (panelId && tab === "destinations") {
       const state = await read(endpoint("destinations/settings"));
       table(
@@ -873,6 +936,60 @@ $("#clearDestinations").onclick = () =>
       await api(endpoint("destinations/clear"), b);
       destinationBefore = null;
       await refresh();
+    },
+  );
+$("#blacklistSettings").onsubmit = run(async () => {
+  const f = $("#blacklistSettings");
+  await api("/api/admin/ip-blacklist/settings", {
+    enabled: f.elements.enabled.checked,
+    recording: f.elements.recording.checked,
+    days: Number(f.elements.days.value),
+  });
+  blacklistSettingsLoaded = false;
+  await refresh();
+  toast("共享黑名单设置已保存，对所有面板生效");
+});
+$("#blacklistFilters").onsubmit = run(async () => {
+  blacklistPage = 1;
+  await refresh();
+});
+$("#blacklistPrevious").onclick = run(async () => {
+  blacklistPage = Math.max(1, blacklistPage - 1);
+  await refresh();
+});
+$("#blacklistNext").onclick = run(async () => {
+  blacklistPage++;
+  await refresh();
+});
+$("#importBlacklist").onclick = () =>
+  ask(
+    "导入历史触发 IP",
+    "从所有面板现存中国大陆规则证据收集有效IP，只对导入后的新请求判断，不重新标记旧访问。",
+    [],
+    async () => {
+      const control = $("#importBlacklist");
+      if (control.disabled) throw Error("正在导入，请稍候");
+      control.disabled = true;
+      let before = 0,
+        changed = 0,
+        scanned = 0,
+        limited = 0;
+      try {
+        do {
+          const result = await api("/api/admin/ip-blacklist/import", {
+            before,
+          });
+          changed += result.changed;
+          scanned += result.scanned;
+          limited += result.limited;
+          before = result.next;
+          $("#blacklistImportStatus").textContent =
+            `已扫描 ${scanned} 条历史，新增或更新 ${changed} 次IP条目${limited ? `；${limited} 条证据已截断，只导入现存部分` : ""}`;
+        } while (before);
+        blacklistPage = 1;
+      } finally {
+        control.disabled = false;
+      }
     },
   );
 $("#refresh").onclick = run(refresh);

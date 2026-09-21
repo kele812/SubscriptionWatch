@@ -165,6 +165,8 @@ export function initialize(db, encrypt) {
     CREATE TABLE IF NOT EXISTS samples(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,ts INTEGER,ip TEXT,ua TEXT);
     CREATE INDEX IF NOT EXISTS sample_subject ON samples(panel,uid,ts);
     CREATE INDEX IF NOT EXISTS sample_time ON samples(ts);
+    CREATE TABLE IF NOT EXISTS ip_blacklist(ip TEXT PRIMARY KEY,source_panel INTEGER,source_name TEXT NOT NULL,source_uid INTEGER NOT NULL,source_ts INTEGER NOT NULL,added INTEGER NOT NULL,expires INTEGER NOT NULL,removed_at INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS ip_blacklist_expiry ON ip_blacklist(expires);
     CREATE TABLE IF NOT EXISTS risks(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,active INTEGER,started INTEGER,updated INTEGER,reasons TEXT NOT NULL,PRIMARY KEY(panel,uid));
     CREATE TABLE IF NOT EXISTS risk_history(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT,ts INTEGER,action TEXT,reasons TEXT);
     CREATE INDEX IF NOT EXISTS risk_history_panel ON risk_history(panel,id);

@@ -4,19 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.8.1" />
+    <link rel="stylesheet" href="/style.css?v=3.8.2" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.8.1 · 独立采集 · 风险评估</small>
+        <small>v3.8.2 · 独立采集 · 风险评估</small>
         <nav>
           <button data-tab="history" class="active">访问记录</button
           ><button data-tab="destinations">用户访问记录</button
           ><button data-tab="risk">可疑用户</button
           ><button data-tab="riskHistory">评估历史</button
           ><button data-tab="whitelist">用户白名单</button
+          ><button data-tab="ipBlacklist">IP 黑名单</button
           ><button data-tab="panelSettings">面板设置</button
           ><button data-tab="telegram">TG 机器人</button
           ><button data-tab="account">账号安全</button
@@ -138,6 +139,61 @@
           </form>
           <div id="subjectTable"></div>
         </section>
+        <section id="ipBlacklist" data-view hidden>
+          <h2>所有面板共用的 IP 黑名单</h2>
+          <p>
+            各面板共同收集参与触发“中国大陆多 IP”规则的有效
+            IP。其他客户在任意面板通过黑名单 IP
+            成功获取订阅，即标记为可疑用户。当前面板的用户白名单、IP 白名单和
+            Cloudflare 豁免优先。
+          </p>
+          <form id="blacklistSettings" class="filters">
+            <label
+              ><input type="checkbox" name="recording" />记录 IP 黑名单</label
+            >
+            <label
+              ><input type="checkbox" name="enabled" />启用黑名单命中规则</label
+            >
+            <label
+              >保留天数（1～999，999 表示永久）<input
+                type="number"
+                name="days"
+                min="1"
+                max="999"
+                required
+                value="7"
+            /></label>
+            <button>保存黑名单设置</button>
+          </form>
+          <p>
+            “记录 IP 黑名单”：开启后，各面板自动记录参与触发中国大陆多 IP
+            规则的有效 IP；关闭后不新增、不更新黑名单记录，也不能导入历史
+            IP。关闭不会删除已有记录，已有记录仍按保留天数到期。
+          </p>
+          <p>
+            “启用黑名单命中规则”：控制客户的新订阅请求命中已有黑名单时，是否标记为可疑用户，与记录开关独立。用户白名单、IP
+            白名单及已开启的 Cloudflare 豁免优先。
+          </p>
+          <p>
+            保留天数默认7天，从最近一次参与触发的有效访问时间计算。输入999表示永久保存，不是999天后删除；现有未过期条目和新增条目均永久保留，仍可手动移除。缩短天数或从999改为普通天数，会按来源访问时间重新限制期限；延长普通天数只用于后续新证据。已过期或已移除条目不自动恢复，已有可疑标记不会自动解除。
+          </p>
+          <form id="blacklistFilters" class="filters">
+            <label
+              >完整 IP 地址<input name="ip" placeholder="留空显示全部" /></label
+            ><button>查询</button>
+            <button type="button" id="importBlacklist">导入历史触发 IP</button>
+          </form>
+          <p id="blacklistImportStatus" role="status"></p>
+          <p>
+            历史导入只使用保留天数内已有的中国大陆规则有效证据，永久模式可导入全部现存历史，不重新标记旧访问；旧版截断或已删除的证据无法补回。手动移除后，同一批旧证据不会再次加入，新异常证据仍可重新加入。
+          </p>
+          <div id="blacklistTable"></div>
+          <div class="filters">
+            <button id="blacklistPrevious">上一页</button
+            ><span id="blacklistPageInfo"></span
+            ><button id="blacklistNext">下一页</button>
+          </div>
+        </section>
         <section id="panelSettings" data-view hidden>
           <div class="settings-block">
             <h2>插件接入</h2>
@@ -172,7 +228,7 @@
           <form id="rulesForm" class="settings-form">
             <h2>可疑用户判断规则</h2>
             <p>
-              共4条规则，任一触发即标记为可疑用户，不自动解除。用户白名单及访问来源豁免优先；除UA规则外仅统计HTTP
+              共5条规则，任一触发即标记为可疑用户，不自动解除。用户白名单及访问来源豁免优先；除UA规则外仅统计HTTP
               2xx成功请求。地域归属依赖IP数据库，未知归属不当作境外。
             </p>
             <fieldset class="rule-card">
@@ -297,6 +353,15 @@
                     name="foreignLongLimit"
                 /></label>
               </div>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>05 · 黑名单 IP 获取订阅</legend>
+              <p>
+                触发条件：新请求通过有效黑名单 IP
+                成功获取一次订阅，即标记为可疑用户。所有面板共同收集和使用，在“IP
+                黑名单”页面统一设置开关、保留天数及移除
+                IP。名单只来自参与触发中国大陆多 IP 规则的有效 IP。
+              </p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>不检查的访问来源</legend>
@@ -513,6 +578,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.8.1"></script>
+    <script src="/app.js?v=3.8.2"></script>
   </body>
 </html>

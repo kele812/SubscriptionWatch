@@ -32,6 +32,7 @@ import { assess } from "../assessment.mjs";
 import { GeoDatabase } from "../geo.mjs";
 import { restoreBackup } from "../restore.mjs";
 import { cleanDestinations } from "../destinations.mjs";
+import { collectBlacklistedIPs, PERMANENT } from "../blacklist.mjs";
 const password = "my-test-password-123",
   user = {
     username: "owner",
@@ -1924,4 +1925,75 @@ test("3.8.0清理、删除密码、旧批次和用户资料变更防串号", () 
     await c.api(base + "/node/remove", { id: n.id, password }, auth);
     assert.equal((await nodeRequest(c, n, "policy", {})).status, 401);
     assert.equal(c.app.db.prepare("SELECT COUNT(*) n FROM visits").get().n, 2);
+  }));
+
+test("3.8.2共享黑名单接口鉴权、永久设置、重启保留及独立清理", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth);
+    const path = "/api/admin/ip-blacklist";
+    assert.equal((await c.request(path)).status, 401);
+    assert.equal(
+      (
+        await c.request(path + "/settings", {
+          enabled: true,
+          recording: true,
+          days: 999,
+        })
+      ).status,
+      401,
+    );
+    await c.api(
+      path + "/settings",
+      { enabled: true, recording: true, days: 999 },
+      auth,
+    );
+    const panelRow = c.app.db
+      .prepare("SELECT * FROM panels WHERE id=?")
+      .get(p.id);
+    collectBlacklistedIPs(
+      c.app.db,
+      panelRow,
+      1,
+      [{ ip: "183.1.1.1", ts: Date.now() - 1000 }],
+      Date.now(),
+    );
+    let data = await c.api(path, undefined, auth);
+    assert.equal(data.total, 1);
+    assert.equal(data.rows[0].expires, PERMANENT);
+    await c.api(`/api/panels/${p.id}/history/clear`, { password }, auth);
+    assert.equal((await c.api(path, undefined, auth)).total, 1);
+    await c.restart();
+    const login = await c.request("/api/login", {
+      username: user.username,
+      password,
+    });
+    const again = cookie(login);
+    data = await c.api(path, undefined, again);
+    assert.equal(data.settings.days, 999);
+    assert.equal(data.total, 1);
+    assert.equal(
+      (
+        await c.request(
+          path + "/settings",
+          { enabled: true, recording: true, days: 1000 },
+          again,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await c.request(
+          path + "/remove",
+          { ip: "183.1.1.1", password: "wrong" },
+          again,
+        )
+      ).status,
+      400,
+    );
+    assert.equal((await c.api(path, undefined, again)).total, 1);
+    await c.api(path + "/remove", { ip: "183.1.1.1", password }, again);
+    assert.equal((await c.api(path, undefined, again)).total, 0);
+    assert.equal((await c.api(path + "/import", {}, again)).changed, 0);
   }));

@@ -1,8 +1,29 @@
 import { defaults } from "./model.mjs";
+import { activeBlacklistedIP, blacklistSettings } from "./blacklist.mjs";
 // Only fresh accepted events may create UA/cloud signals; maintenance never replays them.
-export function assess(db, panel, subject, now, geo, fresh = []) {
+export function assess(
+  db,
+  panel,
+  subject,
+  now,
+  geo,
+  fresh = [],
+  onChinaTrigger,
+) {
   const r = { ...defaults, ...JSON.parse(panel.rules) };
   if (subject.white) return [];
+  const blacklist = blacklistSettings(db),
+    blacklistCache = new Map();
+  const blackEntry = (ip) => {
+    if (!blacklistCache.has(ip))
+      blacklistCache.set(ip, activeBlacklistedIP(db, ip, now));
+    return blacklistCache.get(ip);
+  };
+  const blackHit = (e) => {
+    const entry = blackEntry(e.ip),
+      ts = e.ts ?? e.time;
+    return success(e) && entry && ts > entry.added && ts <= now;
+  };
   const decorate = (e) => ({ ...e, geo: geo?.lookup(e.ip) || {} });
   const exempt = (e) =>
     r.ipWhitelist.includes(e.ip)
@@ -71,7 +92,7 @@ export function assess(db, panel, subject, now, geo, fresh = []) {
       label,
       count: minutes ? unique(rows).length : rows.length,
       threshold,
-      ruleVersion: "3.7.1",
+      ruleVersion: "3.8.2",
       ruleSnapshot: r,
       windowMinutes: minutes,
       windowStart: minutes
@@ -105,12 +126,28 @@ export function assess(db, panel, subject, now, geo, fresh = []) {
         geo: e.geo,
         included: selected.has(e),
         exclusion: selected.has(e) ? "" : exempt(e) || why(e),
+        ...(code === "blacklist" && selected.has(e)
+          ? {
+              blacklistSourcePanel: blackEntry(e.ip).source_name,
+              blacklistSourceUser: blackEntry(e.ip).source_uid,
+              blacklistAdded: blackEntry(e.ip).added,
+              blacklistExpires: blackEntry(e.ip).expires,
+            }
+          : {}),
       })),
       evidenceLimited: pairs.size > 100,
       evidenceCount: pairs.size,
     });
   }
   for (const [enabled, code, label, predicate, why] of [
+    [
+      blacklist.enabled,
+      "blacklist",
+      "黑名单 IP 获取订阅",
+      blackHit,
+      (e) =>
+        !success(e) ? "请求未成功" : "未命中有效黑名单或请求早于入名单时间",
+    ],
     [
       r.uaEnabled,
       "ua",
@@ -174,7 +211,7 @@ export function assess(db, panel, subject, now, geo, fresh = []) {
         threshold = r[code + w + "Limit"] + 1;
       const all = observed.filter((e) => e.ts > now - minutes * 60000),
         rows = all.filter((e) => !exempt(e) && success(e) && isRegion(e));
-      if (unique(rows).length >= threshold)
+      if (unique(rows).length >= threshold) {
         add(`${code}${suffix}`, label, rows, all, minutes, threshold, (e) =>
           !success(e)
             ? "请求未成功或状态未知"
@@ -182,6 +219,20 @@ export function assess(db, panel, subject, now, geo, fresh = []) {
               ? "归属未知"
               : "不属于本条规则的地域",
         );
+        if (
+          code === "cn" &&
+          incoming.some((e) =>
+            rows.some(
+              (x) =>
+                x.ip === e.ip &&
+                x.ts === e.ts &&
+                x.ua === e.ua &&
+                x.status === e.status,
+            ),
+          )
+        )
+          onChinaTrigger?.(rows);
+      }
     }
   }
   return reasons;
