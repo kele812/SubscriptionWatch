@@ -1297,3 +1297,27 @@ $("#previewRules").onclick = run(async () => {
     button.disabled = false;
   }
 });
+
+$("#exportBlacklist").onclick = run(async () => {
+  const r = await fetch("/api/admin/ip-blacklist/export", {
+    headers: { "X-Watch-Request": "1" },
+  });
+  if (!r.ok) {
+    if (r.status === 401) {
+      document.body.hidden = true;
+      location.replace("/");
+    }
+    throw Error("导出失败，请确认登录状态后重试（HTTP " + r.status + "）");
+  }
+  if (!(r.headers.get("content-type") || "").startsWith("text/plain"))
+    throw Error("导出失败：服务器返回了异常内容");
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "ip-blacklist.txt";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  toast("黑名单已导出，每行一个 IP");
+});

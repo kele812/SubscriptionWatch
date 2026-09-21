@@ -551,6 +551,19 @@ export function createApp({
         const b = method === "POST" ? await body(req) : {};
         if (route.startsWith("/api/admin/ip-blacklist")) {
           if (!account.admin) fail(403, "无权管理共享IP黑名单");
+          if (route === "/api/admin/ip-blacklist/export" && method === "GET") {
+            const rows = db
+              .prepare(
+                "SELECT ip FROM ip_blacklist WHERE removed_at=0 AND expires>? ORDER BY ip",
+              )
+              .all(Date.now());
+            res.writeHead(200, {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Content-Disposition": 'attachment; filename="ip-blacklist.txt"',
+              "Cache-Control": "no-store",
+            });
+            return res.end(rows.map((r) => r.ip + "\n").join(""));
+          }
           if (route === "/api/admin/ip-blacklist" && method === "GET")
             return json(res, 200, blacklistRows(db, u.searchParams));
           if (
@@ -1006,7 +1019,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.8.2 ready");
+  console.log("Subscription Watch v3.8.3 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

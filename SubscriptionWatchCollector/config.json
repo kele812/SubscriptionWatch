@@ -1,7 +1,7 @@
 {
   "name": "订阅观察采集器",
   "code": "subscription_watch_collector",
-  "version": "3.7.0",
+  "version": "3.8.3",
   "description": "订阅轻量采集与签名封禁任务执行，风险计算在风控机。",
   "author": "Subscription Watch",
   "type": "feature",
@@ -16,7 +16,7 @@
       "type": "string",
       "default": "",
       "label": "风控后台地址",
-      "description": "填写 https://你的风控后台域名，不填Xboard或新加坡地址。必须使用有效HTTPS证书。"
+      "description": "填写 https://你的风控后台域名，不填 Xboard 地址或订阅入口地址。必须使用有效 HTTPS 证书。"
     },
     "secret": {
       "type": "string",
@@ -26,9 +26,9 @@
     },
     "trusted_proxies": {
       "type": "string",
-      "default": "203.0.113.10",
+      "default": "",
       "label": "可信代理IP",
-      "description": "逗号分隔。填写新加坡反代IP；如Xboard前还有本机Nginx、Docker网关，需加入其实际IP。只填明确的IP，不支持通配符。"
+      "description": "填写由你管理、负责将订阅请求转发给 Xboard 的反向代理服务器 IP，多个用英文逗号分隔。若请求经过本机 Nginx 或 Docker 网关，也需填写对应的实际连接 IP。例：反代 IP,127.0.0.1（仅实际经过本机代理时填写127.0.0.1）。没有代理则留空；不要填写客户 IP、普通代理节点出口 IP、域名或通配符。不确定时先查看请求详情的“直接连接IP”，再核对代理链路。"
     },
     "queue_limit": {
       "type": "number",

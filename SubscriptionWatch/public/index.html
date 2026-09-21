@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.8.2" />
+    <link rel="stylesheet" href="/style.css?v=3.8.3" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.8.2 · 独立采集 · 风险评估</small>
+        <small>v3.8.3 · 独立采集 · 风险评估</small>
         <nav>
           <button data-tab="history" class="active">访问记录</button
           ><button data-tab="destinations">用户访问记录</button
@@ -177,10 +177,17 @@
           <p>
             保留天数默认7天，从最近一次参与触发的有效访问时间计算。输入999表示永久保存，不是999天后删除；现有未过期条目和新增条目均永久保留，仍可手动移除。缩短天数或从999改为普通天数，会按来源访问时间重新限制期限；延长普通天数只用于后续新证据。已过期或已移除条目不自动恢复，已有可疑标记不会自动解除。
           </p>
+          <p>
+            导出全部有效黑名单 IP（所有面板共用），TXT
+            格式，每行一个；不受搜索和分页限制，不含已过期或已移除的 IP。
+          </p>
           <form id="blacklistFilters" class="filters">
             <label
               >完整 IP 地址<input name="ip" placeholder="留空显示全部" /></label
             ><button>查询</button>
+            <button type="button" id="exportBlacklist">
+              一键导出 IP 黑名单
+            </button>
             <button type="button" id="importBlacklist">导入历史触发 IP</button>
           </form>
           <p id="blacklistImportStatus" role="status"></p>
@@ -578,6 +585,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.8.2"></script>
+    <script src="/app.js?v=3.8.3"></script>
   </body>
 </html>

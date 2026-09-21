@@ -1997,3 +1997,36 @@ test("3.8.2共享黑名单接口鉴权、永久设置、重启保留及独立清
     assert.equal((await c.api(path, undefined, again)).total, 0);
     assert.equal((await c.api(path + "/import", {}, again)).changed, 0);
   }));
+
+test("3.8.3黑名单导出需登录、导出全部有效IP且不受分页搜索影响", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth),
+      url = "/api/admin/ip-blacklist/export";
+    assert.equal((await c.request(url)).status, 401);
+    let r = await c.request(url, undefined, auth);
+    assert.equal(await r.text(), "");
+    const pr = c.app.db.prepare("SELECT * FROM panels WHERE id=?").get(p.id),
+      now = Date.now();
+    const ips = Array.from({ length: 125 }, (_, i) => "1.0.0." + (i + 1));
+    collectBlacklistedIPs(
+      c.app.db,
+      pr,
+      1,
+      ips.map((ip) => ({ ip, ts: now - 1000 })),
+      now,
+    );
+    c.app.db
+      .prepare("UPDATE ip_blacklist SET expires=? WHERE ip=?")
+      .run(now - 1, ips[0]);
+    c.app.db
+      .prepare("UPDATE ip_blacklist SET removed_at=? WHERE ip=?")
+      .run(now, ips[1]);
+    r = await c.request(url + "?page=2&ip=1.0.0.3", undefined, auth);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-disposition"), /attachment/);
+    assert.match(r.headers.get("cache-control"), /no-store/);
+    const text = await r.text();
+    assert.deepEqual(text.trim().split("\n").sort(), ips.slice(2).sort());
+    assert.equal(text.includes("@"), false);
+  }));

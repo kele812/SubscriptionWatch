@@ -1,8 +1,8 @@
-# SubscriptionWatch · 后台 v3.8.0
+# SubscriptionWatch · 后台 v3.8.3
 
 ## 上传插件
 
-下载 [采集插件 v3.7.0](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.7.0.zip)，在 XB 的插件管理中上传 ZIP 并启用。
+下载 [采集插件 v3.8.3](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.8.3.zip)，在 XB 的插件管理中上传 ZIP 并启用。
 
 先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；XB 原有的每分钟计划任务需正常运行。
 
@@ -35,4 +35,4 @@ git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele
 3. 添加反向代理，目标地址填 `http://127.0.0.1:18080`，关闭代理缓存。
 4. 浏览器打开 `https://你的域名`，首次访问创建账号密码，再添加 XB 面板并配置插件。
 
-代理访问记录还需在代理节点部署配套程序，见 [节点部署说明](node-access/README.md)。
+用户访问记录还需在代理节点部署配套程序，见 [节点部署说明](node-access/README.md)。
