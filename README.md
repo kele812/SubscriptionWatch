@@ -1,4 +1,4 @@
-# SubscriptionWatch · 后台 v3.8.3
+# SubscriptionWatch · 后台 v3.8.4
 
 ## 上传插件
 

@@ -12,6 +12,69 @@ let me,
   toastTimer,
   refreshBusy = false,
   refreshPending = false;
+function requestStatusText(value) {
+  const code = Number(value);
+  const meanings = {
+    100: "继续请求",
+    101: "切换协议",
+    102: "处理中",
+    103: "预先提示",
+    200: "请求成功",
+    201: "创建成功",
+    202: "已接受，待处理",
+    204: "请求成功，无返回内容",
+    206: "部分内容返回",
+    300: "有多个可选地址",
+    301: "永久跳转",
+    302: "临时跳转",
+    303: "跳转到其他地址",
+    304: "内容未修改，使用缓存",
+    307: "临时跳转，保留请求方式",
+    308: "永久跳转，保留请求方式",
+    400: "请求有误",
+    401: "未通过身份验证",
+    403: "拒绝访问",
+    404: "地址不存在",
+    405: "请求方式不允许",
+    406: "不支持请求的内容格式",
+    408: "请求超时",
+    409: "请求冲突",
+    410: "资源已移除",
+    413: "请求内容过大",
+    414: "请求地址过长",
+    415: "不支持的内容类型",
+    422: "请求参数无法处理",
+    429: "请求过于频繁",
+    451: "因法律原因不可用",
+    499: "客户端提前断开",
+    500: "服务器内部错误",
+    501: "服务器不支持此功能",
+    502: "上游服务响应异常",
+    503: "服务暂时不可用",
+    504: "上游服务响应超时",
+    505: "不支持的协议版本",
+    520: "上游返回未知错误",
+    521: "源站拒绝连接",
+    522: "连接源站超时",
+    523: "无法连接源站",
+    524: "源站响应超时",
+    525: "源站加密握手失败",
+    526: "源站证书无效",
+  };
+  if (!Number.isInteger(code) || code < 100 || code > 599) return "状态未知";
+  return (
+    meanings[code] ||
+    (code < 200
+      ? "请求处理中"
+      : code < 300
+        ? "请求成功"
+        : code < 400
+          ? "重定向响应"
+          : code < 500
+            ? "请求未被接受"
+            : "服务器处理异常")
+  );
+}
 function toast(text) {
   $("#toast").textContent = text;
   $("#toast").hidden = false;
@@ -657,7 +720,7 @@ async function refresh() {
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
-          r.status,
+          requestStatusText(r.status),
           button("查看", () =>
             detail({
               时间: format(r.ts),
@@ -669,7 +732,7 @@ async function refresh() {
 
               直接连接IP: r.peer_ip,
               IP取值依据: r.ip_source,
-              状态: r.status,
+              状态: requestStatusText(r.status),
               耗时毫秒: r.ms,
             }),
           ),
