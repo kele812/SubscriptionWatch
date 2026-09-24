@@ -238,13 +238,21 @@ function actions(...items) {
 function detail(data) {
   const evidence = $("#detailEvidence");
   evidence.replaceChildren();
-  $("#detailText").hidden = Array.isArray(data.风险原因);
+  const line = (parent, value, className = "") => {
+    const p = document.createElement("p");
+    p.textContent = value;
+    if (className) p.className = className;
+    parent.append(p);
+  };
+  const risk = Array.isArray(data.风险原因);
+  const visit = !risk && "来源IP" in data;
+  $("#detailText").hidden = risk || visit;
   if (Array.isArray(data.风险原因)) {
-    const identity = document.createElement("p");
-    identity.textContent = `用户 ${data.用户ID} · ${data.邮箱} · ${data.时间}`;
-    evidence.append(identity);
+    line(evidence, `用户 ${data.用户ID} · ${data.邮箱} · 更新于 ${data.时间}`);
     const title = document.createElement("h3");
-    title.textContent = "风险原因与访问详情";
+    title.textContent = data.风险原因.length
+      ? `触发 ${data.风险原因.length} 条规则`
+      : "当前没有触发中的规则";
     evidence.append(title);
     for (const reason of data.风险原因) {
       const card = document.createElement("section");
@@ -253,64 +261,43 @@ function detail(data) {
       heading.textContent = reason.规则;
       card.append(heading);
       const stats = reason.统计;
-      if (stats) {
-        const summary = document.createElement("p");
-        const duration =
-          reason.窗口分钟 % 60 === 0
+      const duration =
+        typeof reason.窗口分钟 === "number"
+          ? reason.窗口分钟 % 60 === 0
             ? `${reason.窗口分钟 / 60} 小时`
-            : `${reason.窗口分钟} 分钟`;
-        summary.textContent = `${reason.窗口分钟 === null ? "本次新请求上报" : "在最近 " + duration + "内"}（${reason.窗口开始} 至 ${reason.窗口结束}），共有 ${stats.totalIps} 个不同 IP 请求同一订阅，共请求 ${stats.totalRequests} 次。最终计入 ${reason.实际数量} ${stats.unit}，达到 ${reason.阈值} ${stats.unit}的触发阈值。`;
-        card.append(summary);
-        for (const group of stats.exclusions) {
-          const line = document.createElement("p");
-          line.textContent = `不计入：${group.reason}，涉及 ${group.ipCount} 个 IP、${group.requests} 次请求。IP：${group.ips.join("、")}${group.ipCount > group.ips.length ? "（仅展示前100个）" : ""}`;
-          line.className = "evidence-exempt";
-          card.append(line);
-        }
-        const note = document.createElement("p");
-        note.textContent = `计入请求涉及 ${stats.includedIps} 个不同 IP、${stats.includedRequests} 次请求。${stats.mergedRequests ? `同一中国大陆 IP 且完整 UA 相同的重复请求合并，减少 ${stats.mergedRequests} 次计数。` : ""}${stats.exclusions.length ? "同一 IP 可能有计入和排除的不同请求，各项 IP 数不能直接相减。" : "没有被排除的请求。"} 按评估时配置记录，历史结论不随当前设置改写。`;
-        card.append(note);
-      } else {
-        const legacy = document.createElement("p");
-        legacy.textContent =
-          "历史评估：按当时配置判断，未保存排除明细，不能按当前白名单推测。";
-        card.append(legacy);
-      }
-      for (const text of [
-        `规则版本：${reason.规则版本} ${reason.附加条件}`,
-        `实际 ${reason.实际数量} / 阈值 ${reason.阈值} · ${reason.窗口分钟 === null ? "逐次检查，无时间窗口" : "窗口 " + reason.窗口分钟 + " 分钟"}`,
-        `${reason.窗口开始} 至 ${reason.窗口结束}`,
-        `原触发条件预计到期（不自动解除风险）：${reason.预计条件到期} · ${reason.证据说明}`,
-      ]) {
-        const line = document.createElement("p");
-        line.textContent = text;
-        card.append(line);
-      }
-      if (reason.计数说明) {
-        const note = document.createElement("p");
-        note.textContent = `${reason.计数说明}；合并前请求 ${reason.合并前请求数} 次`;
-        card.append(note);
-      }
+            : `${reason.窗口分钟} 分钟`
+          : null;
+      const count = stats
+        ? reason.窗口分钟 === null
+          ? `${stats.includedIps} 个 IP · ${stats.includedRequests} 次请求`
+          : `${reason.实际数量} 个不同 IP`
+        : `实际 ${reason.实际数量}`;
+      line(
+        card,
+        `${duration ? `最近 ${duration} · ` : ""}${count} · 阈值 ${reason.阈值}${stats?.unit || ""}${reason.附加条件 ? ` · ${reason.附加条件}` : ""}`,
+        "evidence-summary",
+      );
       for (const hit of reason.访问证据) {
-        const line = document.createElement("div");
-        line.className = "evidence-hit";
-        if (hit.计入 === false) line.className += " evidence-exempt";
-        for (const text of [
-          `${hit.时间} · ${hit.IP} · ${hit.计入 === true ? "参与触发" : hit.计入 === false ? "不计入：" + hit.排除原因 : "历史证据（未保存计入状态）"}${hit.自有节点 === "是" ? " · 自有节点" : ""}`,
-          hit.归属地,
+        const entry = document.createElement("div");
+        entry.className = "evidence-hit";
+        if (hit.计入 === false) entry.className += " evidence-exempt";
+        const status =
+          hit.计入 === false
+            ? `不计入：${hit.排除原因 || "未参与触发"}`
+            : hit.计入 === true
+              ? "参与触发"
+              : "历史证据，计入状态未知";
+        line(
+          entry,
+          `${hit.时间} · ${hit.IP} · ${status}${hit.自有节点 === "是" ? " · 自有节点" : ""}`,
+          hit.计入 === true && reason.代码 !== "ua" ? "evidence-trigger" : "",
+        );
+        if (hit.归属地) line(entry, hit.归属地);
+        line(
+          entry,
           `UA：${hit.原始UA || "（空）"}`,
-        ]) {
-          const p = document.createElement("p");
-          p.textContent = text;
-          if (
-            hit.计入 === true &&
-            (reason.代码 === "ua"
-              ? text.startsWith("UA：")
-              : text.startsWith(hit.时间))
-          )
-            p.className = "evidence-trigger";
-          line.append(p);
-        }
+          hit.计入 === true && reason.代码 === "ua" ? "evidence-trigger" : "",
+        );
         for (const text of [
           hit.地址提示,
           hit.参与统计?.join("、"),
@@ -319,19 +306,69 @@ function detail(data) {
             : "",
         ]) {
           if (!text) continue;
-          const note = document.createElement("p");
-          note.textContent = text;
-          line.append(note);
+          line(entry, text);
         }
-        card.append(line);
+        card.append(entry);
       }
       if (!reason.访问证据.length) {
-        const p = document.createElement("p");
-        p.textContent = "旧记录未保存详细证据";
-        card.append(p);
+        line(card, "旧记录未保存详细证据");
       }
+      const extra = document.createElement("details");
+      extra.className = "evidence-more";
+      const toggle = document.createElement("summary");
+      toggle.textContent = "判定详情";
+      extra.append(toggle);
+      line(extra, `规则版本：${reason.规则版本}`);
+      if (reason.窗口开始 && reason.窗口结束)
+        line(extra, `评估时间：${reason.窗口开始} 至 ${reason.窗口结束}`);
+      if (duration) line(extra, `统计窗口：${duration}`);
+      else if (reason.窗口分钟 === null) line(extra, "逐次检查，不按时间累计");
+      if (reason.预计条件到期 && reason.预计条件到期 !== "—")
+        line(
+          extra,
+          `原条件预计到期：${reason.预计条件到期}（风险不会自动解除）`,
+        );
+      if (stats) {
+        line(
+          extra,
+          `全部请求：${stats.totalIps} 个 IP、${stats.totalRequests} 次；计入：${stats.includedIps} 个 IP、${stats.includedRequests} 次`,
+        );
+        for (const group of stats.exclusions || [])
+          line(
+            extra,
+            `不计入：${group.reason} · ${group.ipCount} 个 IP、${group.requests} 次${group.ips?.length ? ` · ${group.ips.join("、")}` : ""}`,
+            "evidence-exempt",
+          );
+        if (stats.mergedRequests)
+          line(extra, `重复请求合并：${stats.mergedRequests} 次`);
+        line(extra, "按触发时的配置保存，历史结果不随当前设置变化。");
+      } else {
+        line(extra, "旧记录未保存完整统计和排除明细。");
+      }
+      if (reason.计数说明)
+        line(extra, `${reason.计数说明}；合并前 ${reason.合并前请求数} 次`);
+      if (reason.证据说明) line(extra, reason.证据说明);
+      card.append(extra);
       evidence.append(card);
     }
+  } else if (visit) {
+    line(evidence, `用户 ${data.用户ID} · ${data.邮箱}`);
+    const card = document.createElement("section");
+    card.className = "evidence-card";
+    line(card, `${data.时间} · ${data.来源IP}`, "evidence-summary");
+    if (data.归属地) line(card, geoText(data.归属地));
+    line(card, `状态：${data.状态}`);
+    line(card, `UA：${data.原始UA || "（空）"}`);
+    const extra = document.createElement("details");
+    extra.className = "evidence-more";
+    const toggle = document.createElement("summary");
+    toggle.textContent = "连接详情";
+    extra.append(toggle);
+    line(extra, `直接连接 IP：${data.直接连接IP || "未知"}`);
+    line(extra, `IP 取值依据：${data.IP取值依据 || "未知"}`);
+    line(extra, `耗时：${data.耗时毫秒 ?? "未知"} 毫秒`);
+    card.append(extra);
+    evidence.append(card);
   }
   $("#detailText").textContent = JSON.stringify(data, null, 2);
   $("#detail").showModal();

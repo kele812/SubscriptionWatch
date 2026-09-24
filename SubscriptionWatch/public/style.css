@@ -519,7 +519,26 @@ dialog {
   margin: 16px 0;
 }
 .evidence-card h3 {
+  margin: 0 0 8px;
+}
+.evidence-summary {
+  color: var(--muted);
   margin: 0 0 12px;
+}
+.evidence-more {
+  border-top: 1px solid #334458;
+  margin-top: 12px;
+  padding-top: 10px;
+  color: var(--muted);
+}
+.evidence-more summary {
+  color: var(--cyan);
+  cursor: pointer;
+  width: fit-content;
+}
+.evidence-more p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
 }
 .evidence-hit {
   border-top: 1px solid #334458;
