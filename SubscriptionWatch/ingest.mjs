@@ -87,7 +87,13 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
       e.status > 599 ||
       !n(e.ms) ||
       e.ms > 3600000 ||
-      !(e.bytes === null || n(e.bytes))
+      !(e.bytes === null || n(e.bytes)) ||
+      (e.token_fingerprint !== undefined &&
+        !/^[a-f0-9]{64}$/.test(e.token_fingerprint)) ||
+      (e.content_type !== undefined && !str(e.content_type, 128)) ||
+      (e.delivered !== undefined && typeof e.delivered !== "boolean") ||
+      (e.delivered === true &&
+        (e.status < 200 || e.status >= 300 || e.bytes === 0))
     )
       return reply(422, { error: "invalid event fields" });
   let inserted = 0,
@@ -103,10 +109,10 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
         "INSERT INTO subjects(panel,uid,email,verified) VALUES(?,?,?,1) ON CONFLICT(panel,uid) DO UPDATE SET white=CASE WHEN subjects.email=excluded.email THEN subjects.white ELSE 0 END,email=excluded.email,verified=1",
       );
       const visit = db.prepare(
-        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,status,ms,bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,status,ms,bytes,event_id,token_fingerprint,content_type,delivered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       );
       const sample = db.prepare(
-        "INSERT INTO samples(panel,uid,ts,ip,ua,status) VALUES(?,?,?,?,?,?)",
+        "INSERT INTO samples(panel,uid,ts,ip,ua,status,delivered) VALUES(?,?,?,?,?,?,?)",
       );
       for (const e of batch.events) {
         if (e.ts <= panel.cleared_at) {
@@ -134,12 +140,30 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           e.status,
           e.ms,
           e.bytes,
+          e.event_id,
+          e.token_fingerprint ?? null,
+          e.content_type ?? null,
+          e.delivered === undefined ? null : Number(e.delivered),
         );
-        sample.run(panel.id, e.user_id, e.ts, address, e.ua, e.status);
+        sample.run(
+          panel.id,
+          e.user_id,
+          e.ts,
+          address,
+          e.ua,
+          e.status,
+          e.delivered === undefined ? null : Number(e.delivered),
+        );
         if (!touched.has(e.user_id)) touched.set(e.user_id, []);
         touched
           .get(e.user_id)
-          .push({ ts: e.ts, ip: address, ua: e.ua, status: e.status });
+          .push({
+            ts: e.ts,
+            ip: address,
+            ua: e.ua,
+            status: e.status,
+            delivered: e.delivered === undefined ? null : Number(e.delivered),
+          });
         inserted++;
       }
       db.prepare(

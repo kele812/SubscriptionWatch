@@ -4,15 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.8.6" />
+    <link rel="stylesheet" href="/style.css?v=3.8.7" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.8.6 · 独立采集 · 风险评估</small>
+        <small>v3.8.7 · 独立采集 · 风险评估</small>
         <nav>
           <button data-tab="history" class="active">访问记录</button
+          ><button data-tab="sourceIp">来源 IP 调查</button
           ><button data-tab="destinations">用户访问记录</button
           ><button data-tab="risk">可疑用户</button
           ><button data-tab="riskHistory">评估历史</button
@@ -78,6 +79,26 @@
             </button>
           </div>
           <div id="historyTable"></div>
+        </section>
+        <section id="sourceIp" data-view hidden>
+          <div class="settings-block">
+            <h2>跨面板来源 IP 调查</h2>
+            <p>
+              查询同一来源 IP
+              访问过哪些面板和用户的订阅。请求归属某个订阅，不代表该用户本人发起；跳转和被拒绝的请求也不代表拿到了订阅内容。
+            </p>
+            <form id="sourceIpForm" class="filters">
+              <label
+                >完整来源 IP<input
+                  name="ip"
+                  required
+                  placeholder="例如 8.8.8.8"
+              /></label>
+              <button>查询</button>
+            </form>
+            <p id="sourceIpSummary"></p>
+            <div id="sourceIpResults"></div>
+          </div>
         </section>
         <section id="destinations" data-view hidden>
           <div class="settings-block">
@@ -622,6 +643,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.8.6"></script>
+    <script src="/app.js?v=3.8.7"></script>
   </body>
 </html>

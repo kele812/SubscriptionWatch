@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { defaults, initialize, migrateRiskV33 } from "../model.mjs";
+import {
+  defaults,
+  initialize,
+  migrateRiskV33,
+  migrateRequestEvidence,
+} from "../model.mjs";
 import { evaluate, resolveRisk } from "../risk.mjs";
 import { assess } from "../assessment.mjs";
 import {
@@ -28,6 +33,7 @@ function fixture(fn) {
   try {
     initialize(db, (s) => s);
     migrateRiskV33(db);
+    migrateRequestEvidence(db);
     db.exec(
       "CREATE TABLE risk_observation(panel INTEGER,uid INTEGER,since INTEGER)",
     );

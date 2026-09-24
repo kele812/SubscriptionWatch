@@ -1,7 +1,13 @@
 import { assess } from "./assessment.mjs";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { riskLevel, evaluate, resolveRisk } from "./risk.mjs";
-import { transaction, token, getConfig, setConfig } from "./model.mjs";
+import {
+  transaction,
+  token,
+  getConfig,
+  setConfig,
+  defaults,
+} from "./model.mjs";
 const results = {
   banned: ["已封禁", "插件已执行封禁并清理登录会话"],
   already_banned: ["已封禁", "Xboard原本已封禁，未重复修改"],
@@ -166,9 +172,68 @@ export class AccountBan {
       subject = this.db
         .prepare("SELECT * FROM subjects WHERE panel=? AND uid=?")
         .get(p.id, uid);
+    const reasons =
+      risk?.active && subject ? assess(this.db, p, subject, now, this.geo) : [];
+    const rules = { ...defaults, ...JSON.parse(p.rules) },
+      recent = this.db
+        .prepare(
+          `SELECT ip,ua FROM visits WHERE panel=? AND uid=?
+        AND delivered=1 AND status>=200 AND status<300 AND ts>=? AND ts<=?
+        ORDER BY ts DESC,id DESC LIMIT 1000`,
+        )
+        .all(p.id, uid, Math.max(subject?.dismissed || 0, now - 86400000), now),
+      matched = new Set(),
+      distinct = new Set(),
+      china = new Set(),
+      foreign = new Set(),
+      activeCodes = new Set(reasons.map((reason) => reason.code));
+    for (const row of recent) {
+      const location = this.geo?.lookup(row.ip) || {},
+        org = (location.organization || "").toLowerCase();
+      if (
+        rules.ipWhitelist?.includes(row.ip) ||
+        (rules.cloudflareExempt && /\bcloudflare\b/i.test(org))
+      )
+        continue;
+      distinct.add(row.ip);
+      if (
+        activeCodes.has("ua") &&
+        rules.uaEnabled &&
+        !rules.uaKeywords.some((word) =>
+          row.ua.toLowerCase().includes(word.toLowerCase()),
+        )
+      )
+        matched.add("ua");
+      if (
+        activeCodes.has("cloud") &&
+        rules.dcEnabled &&
+        rules.dcKeywords.some((word) => org.includes(word.toLowerCase()))
+      )
+        matched.add("cloud");
+      if (location.countryCode === "CN") china.add(row.ip);
+      else if (
+        /^[A-Z]{2}$/.test(location.countryCode || "") &&
+        !["XX", "ZZ"].includes(location.countryCode)
+      )
+        foreign.add(row.ip);
+    }
+    if (
+      china.size >= 4 &&
+      [...activeCodes].some((code) => code.startsWith("cn"))
+    )
+      matched.add("cn");
+    if (
+      foreign.size >= 4 &&
+      [...activeCodes].some((code) => code.startsWith("foreign"))
+    )
+      matched.add("foreign");
+    const strong =
+      ((matched.has("cn") || matched.has("foreign")) && distinct.size >= 4) ||
+      (distinct.size >= 2 && matched.size >= 2);
     return risk?.active &&
       subject &&
-      riskLevel(assess(this.db, p, subject, now, this.geo)) === "suspicious" &&
+      riskLevel(reasons) === "suspicious" &&
+      strong &&
       subject?.verified &&
       !subject.white
       ? { risk, subject }
@@ -263,7 +328,10 @@ export class AccountBan {
           if (
             !subject?.verified ||
             subject.email !== a.email ||
-            (a.kind === "ban" && subject.white)
+            (a.kind === "ban" && subject.white) ||
+            (a.kind === "ban" &&
+              a.origin !== "manual" &&
+              !this.eligible(panel, a.uid, now))
           ) {
             this.db
               .prepare(

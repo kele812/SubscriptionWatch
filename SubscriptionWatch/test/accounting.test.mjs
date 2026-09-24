@@ -85,8 +85,19 @@ test("3.7.1失败请求、边界、未知归属、白名单和CF排除", () => {
 test("3.7.1 UA与云规则仅处理新请求；无时间窗口、成功状态和豁免", () => {
   const bad = row("3.0.0.1", now - 1000, 500, "");
   assert.equal(check([bad]).length, 0);
-  assert.equal(check([], [bad])[0].code, "ua");
-  assert.equal(check([], [bad])[0].windowMinutes, null);
+  assert.equal(check([], [bad]).length, 0);
+  assert.equal(
+    check([], [row("3.0.0.1", now - 1000, 302, "Browser")]).length,
+    0,
+  );
+  assert.equal(
+    check([], [row("3.0.0.1", now - 1000, 200, "Browser")])[0].code,
+    "ua",
+  );
+  assert.equal(
+    check([], [row("3.0.0.1", now - 1000, 200, "Browser")])[0].windowMinutes,
+    null,
+  );
   assert.equal(check([], [row("3.0.0.88")])[0].code, "cloud");
   assert.equal(check([], [row("3.0.0.88", now - 1000, 500)]).length, 0);
   assert.equal(check([], [bad], { ipWhitelist: [bad.ip] }).length, 0);

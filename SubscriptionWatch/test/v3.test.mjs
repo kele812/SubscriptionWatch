@@ -201,6 +201,64 @@ test("首次设置、强制登录、禁止注册、退出和改密使旧会话�
     );
   }));
 
+test("3.8.7区分跳转与确认返回，保存脱敏证据并跨面板调查来源IP", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      a = await panel(c, auth, "A"),
+      b = await panel(c, auth, "B"),
+      ip = "8.211.207.163",
+      fingerprint = "a".repeat(64);
+    c.app.geo.lookup = () => ({ countryCode: "GB", organization: "Alibaba" });
+    await send(c, a, [
+      event({
+        ip,
+        ua: "Chrome/120",
+        status: 302,
+        delivered: false,
+        token_fingerprint: fingerprint,
+        content_type: "text/html",
+      }),
+    ]);
+    assert.equal(
+      (await c.api(`/api/panels/${a.id}/risks`, undefined, auth)).rows.length,
+      0,
+    );
+    await send(c, b, [
+      event({
+        ip,
+        user_id: 2,
+        ua: "Chrome/120",
+        status: 200,
+        delivered: true,
+        token_fingerprint: "b".repeat(64),
+        content_type: "text/plain",
+      }),
+    ]);
+    const r = await c.api(`/api/admin/source-ip?ip=${ip}`, undefined, auth);
+    assert.equal(r.summary.requests, 2);
+    assert.equal(r.summary.panels, 2);
+    assert.equal(r.summary.users, 2);
+    assert.equal(r.summary.subscriptions, 2);
+    assert.equal(r.summary.confirmed, 1);
+    assert.equal(r.summary.redirects, 1);
+    assert.equal(r.rows[1].token_fingerprint, fingerprint);
+    assert.match(r.rows[1].event_id, /^[a-f0-9]{32}$/);
+    assert.equal(
+      (await c.request(`/api/admin/source-ip?ip=${ip}`)).status,
+      401,
+    );
+    assert.equal(
+      (await c.request("/api/admin/source-ip?ip=bad", undefined, auth)).status,
+      400,
+    );
+    assert.deepEqual(
+      (
+        await c.api(`/api/panels/${b.id}/risks`, undefined, auth)
+      ).rows[0].reasons.map((x) => x.code),
+      ["ua", "cloud"],
+    );
+  }));
+
 test("账号、面板、密钥、同名用户隔离；签名、原子性和重试去重", () =>
   fixture(async (c) => {
     const auth = await setup(c),
@@ -1004,11 +1062,11 @@ async function control(c, p, extra = {}, secret = p.collectorKey) {
 async function highRisk(c, p, uid = 1) {
   c.app.geo.lookup = () => ({ countryCode: "CN", organization: "ISP" });
   await send(c, p, [
-    event({ user_id: uid }),
-    event({ user_id: uid, ip: "1.1.1.2" }),
-    event({ user_id: uid, ip: "1.1.1.3" }),
-    event({ user_id: uid, ip: "1.1.1.4" }),
-    event({ user_id: uid, ip: "1.1.1.5" }),
+    event({ user_id: uid, delivered: true }),
+    event({ user_id: uid, ip: "1.1.1.2", delivered: true }),
+    event({ user_id: uid, ip: "1.1.1.3", delivered: true }),
+    event({ user_id: uid, ip: "1.1.1.4", delivered: true }),
+    event({ user_id: uid, ip: "1.1.1.5", delivered: true }),
   ]);
 }
 
@@ -1547,6 +1605,7 @@ test("3.7.2取消观察期，旧观察设置不阻止下一次领取，规则关
     const auth = await setup(c),
       p = await panel(c, auth),
       url = `/api/panels/${p.id}`;
+    c.app.geo.lookup = () => ({ countryCode: "CN", organization: "ISP" });
     await send(c, p, [event({ ua: "Browser" })]);
     await control(c, p);
     await c.api(url + "/ban", { enabled: true, observeMinutes: 30 }, auth);
@@ -1560,10 +1619,36 @@ test("3.7.2取消观察期，旧观察设置不阻止下一次领取，规则关
       c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n,
       snapshot,
     );
+    assert.equal(
+      (await control(c, p)).tasks.length,
+      0,
+      "单次UA异常不能自动封禁",
+    );
+    await send(
+      c,
+      p,
+      [2, 3, 4, 5].map((n) =>
+        event({
+          ip: `1.1.1.${n}`,
+          delivered: true,
+          ua: "Browser",
+        }),
+      ),
+    );
     assert.equal((await control(c, p)).tasks.length, 1);
     await c.api(
       url + "/settings",
-      { name: "test", notify: false, rules: { ...defaults, uaEnabled: false } },
+      {
+        name: "test",
+        notify: false,
+        rules: {
+          ...defaults,
+          uaEnabled: false,
+          chinaEnabled: false,
+          foreignEnabled: false,
+          dcEnabled: false,
+        },
+      },
       auth,
     );
     const panelRow = c.app.db

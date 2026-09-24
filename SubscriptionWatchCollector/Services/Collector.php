@@ -46,6 +46,11 @@ class Collector
             'ua' => mb_strcut((string) $request->header('User-Agent', ''), 0, 1024, 'UTF-8'),
             'flag' => is_string($request->input('flag')) ? mb_strcut($request->input('flag'), 0, 128, 'UTF-8') : '',
         ]);
+        // Correlate requests for the same subscription without sending or storing its raw token.
+        $subscriptionToken = (string) ($user->token ?? '');
+        if ($subscriptionToken !== '') {
+            $event['token_fingerprint'] = hash_hmac('sha256', $subscriptionToken, (string) $this->options['secret']);
+        }
         $request->attributes->set(self::MARKER, ['collector' => $this, 'event' => $event, 'start' => microtime(true)]);
     }
 
@@ -62,6 +67,11 @@ class Collector
             // Do not materialize or serialize subscription response bodies.
             $length = $handled->response->headers->get('Content-Length');
             $event['bytes'] = is_string($length) && ctype_digit($length) ? (int) $length : null;
+            $contentType = strtolower(trim((string) $handled->response->headers->get('Content-Type', '')));
+            $event['content_type'] = substr($contentType, 0, 128);
+            $event['delivered'] = $event['status'] >= 200 && $event['status'] < 300
+                && $event['bytes'] !== 0
+                && !str_contains($contentType, 'text/html');
             (new Buffer($capture['collector']->options))->enqueue($event);
         } catch (\Throwable $e) {}
     }
@@ -77,7 +87,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '3.7.0', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '3.8.7', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Http::connectTimeout(1)->timeout(3)->withoutRedirecting()

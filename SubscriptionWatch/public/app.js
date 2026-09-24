@@ -1,6 +1,7 @@
 const $ = (s) => document.querySelector(s);
 let destinationBefore = null,
-  destinationNext = null;
+  destinationNext = null,
+  sourceIpQuery = "";
 let blacklistPage = 1,
   blacklistSettingsLoaded = false;
 const batchSelected = {
@@ -428,6 +429,7 @@ function detail(data) {
     line(card, `${data.时间} · ${data.来源IP}`, "evidence-summary");
     if (data.归属地) line(card, geoText(data.归属地));
     line(card, `状态：${data.状态}`);
+    if (data.确认返回订阅) line(card, `订阅内容：${data.确认返回订阅}`);
     line(card, `UA：${data.原始UA || "（空）"}`);
     const extra = document.createElement("details");
     extra.className = "evidence-more";
@@ -437,6 +439,9 @@ function detail(data) {
     line(extra, `直接连接 IP：${data.直接连接IP || "未知"}`);
     line(extra, `IP 取值依据：${data.IP取值依据 || "未知"}`);
     line(extra, `耗时：${data.耗时毫秒 ?? "未知"} 毫秒`);
+    if (data.请求编号) line(extra, `请求编号：${data.请求编号}`);
+    if (data.订阅指纹) line(extra, `订阅指纹：${data.订阅指纹}`);
+    if (data.内容类型) line(extra, `内容类型：${data.内容类型}`);
     card.append(extra);
     evidence.append(card);
   }
@@ -583,6 +588,7 @@ function fillRules() {
 }
 async function enter() {
   me = await api("/api/me");
+  sourceIpQuery = "";
   tab = "history";
   page = 1;
   for (const v of document.querySelectorAll("[data-view]"))
@@ -691,6 +697,33 @@ async function refresh() {
         `采集状态：${s.panel.health} · 最近上报：${format(s.panel.last_seen)} · 待发送 ${s.panel.pending} · 丢弃 ${s.panel.dropped} · 过期 ${s.panel.expired} · 上报失败 ${s.panel.failures ?? "旧插件未提供"} · 插件 ${s.panel.version || "未连接"}（计数为最近一次上报快照，离线期间未知；Redis计数可能过期归零）`;
     }
     let rows = [];
+    if (tab === "sourceIp") {
+      if (sourceIpQuery) {
+        const d = await read(
+          "/api/admin/source-ip?ip=" + encodeURIComponent(sourceIpQuery),
+        );
+        const s = d.summary;
+        $("#sourceIpSummary").textContent =
+          `共 ${s.requests} 次请求，涉及 ${s.panels} 个面板、${s.users} 个用户；确认返回订阅 ${s.confirmed} 次，跳转 ${s.redirects} 次，被拒绝或出错 ${s.rejected} 次。已记录订阅指纹 ${s.subscriptions} 个（旧插件上报无指纹）。最早 ${format(s.first_seen)}，最近 ${format(s.last_seen)}。下表最多显示最近 100 条。`;
+        table(
+          "#sourceIpResults",
+          ["时间", "面板", "用户ID / 邮箱", "响应", "原始UA", "请求证据"],
+          d.rows.map((r) => [
+            format(r.ts),
+            r.panel_name,
+            `${r.uid} / ${r.email}`,
+            `${requestStatusText(r.status)} · ${r.delivered === 1 ? "确认返回订阅" : r.delivered === 0 ? "未确认返回" : "旧版未核实"}`,
+            r.ua || "（空）",
+            r.event_id
+              ? `编号 ${r.event_id}\n指纹 ${r.token_fingerprint ? r.token_fingerprint.slice(0, 16) + "…" : "旧版无"}`
+              : "旧版无编号",
+          ]),
+        );
+      } else {
+        $("#sourceIpSummary").textContent = "请输入来源 IP 后查询。";
+        $("#sourceIpResults").replaceChildren();
+      }
+    }
     if (tab === "ipBlacklist") {
       const q = new URLSearchParams(new FormData($("#blacklistFilters")));
       q.set("page", blacklistPage);
@@ -850,7 +883,7 @@ async function refresh() {
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
-          requestStatusText(r.status),
+          `${requestStatusText(r.status)}${r.delivered === 0 ? " · 未确认返回订阅" : ""}`,
           button("查看", () =>
             detail({
               时间: format(r.ts),
@@ -864,6 +897,15 @@ async function refresh() {
               IP取值依据: r.ip_source,
               状态: requestStatusText(r.status),
               耗时毫秒: r.ms,
+              请求编号: r.event_id,
+              订阅指纹: r.token_fingerprint,
+              内容类型: r.content_type,
+              确认返回订阅:
+                r.delivered === 1
+                  ? "是"
+                  : r.delivered === 0
+                    ? "否"
+                    : "旧版未核实",
             }),
           ),
         ]),
@@ -1027,7 +1069,8 @@ async function refresh() {
         format(config.lastSeen) +
         " · 自动封禁：" +
         (config.enabled ? "开启" : "关闭") +
-        (config.canUnban ? " · 支持手动解封" : " · 手动解封需v3.5插件");
+        (config.canUnban ? " · 支持手动解封" : " · 手动解封需v3.5插件") +
+        "。自动封禁仅依据新版插件确认返回内容的请求：最近24小时内须有至少4个不同IP触发地域规则，或至少2个不同IP并命中2类规则；单次异常UA或云IP只标记可疑，不自动封禁。";
       table(
         "#banHistory",
         ["用户ID", "操作", "状态", "说明", "时间"],
@@ -1258,6 +1301,10 @@ $("#importBlacklist").onclick = () =>
 $("#refresh").onclick = run(refresh);
 $("#filters").onsubmit = run(async () => {
   page = 1;
+  await refresh();
+});
+$("#sourceIpForm").onsubmit = run(async () => {
+  sourceIpQuery = $("#sourceIpForm").elements.ip.value.trim();
   await refresh();
 });
 $("#filters").onreset = () =>

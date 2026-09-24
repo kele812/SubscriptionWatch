@@ -34,6 +34,7 @@ import {
   simplifyAccounts,
   migratePanelBots,
   migrateRiskV33,
+  migrateRequestEvidence,
   defaults,
   token,
   getConfig,
@@ -121,6 +122,7 @@ export function createApp({
       simplifyAccounts(db);
       migratePanelBots(db);
       migrateRiskV33(db);
+      migrateRequestEvidence(db);
       geo = new GeoDatabase({ db, dataDir, encrypt, decrypt, fetcher });
       tg = new Telegram({ db, encrypt, decrypt, geo, fetcher });
       bans = new AccountBan({ db, encrypt, decrypt, geo, fetcher });
@@ -561,6 +563,31 @@ export function createApp({
         if ((backupBusy || importBusy) && method === "POST")
           fail(409, "正在备份，请稍后修改IP数据库");
         const b = method === "POST" ? await body(req) : {};
+        if (route === "/api/admin/source-ip" && method === "GET") {
+          if (!account.admin) fail(403, "无权查看跨面板来源IP");
+          const ip = String(u.searchParams.get("ip") || "").trim();
+          if (!isIP(ip)) fail(400, "请输入完整的IPv4或IPv6地址");
+          const summary = db
+            .prepare(
+              `SELECT COUNT(*) requests,
+            COUNT(DISTINCT panel) panels,
+            COUNT(DISTINCT CAST(panel AS TEXT)||':'||CAST(uid AS TEXT)) users,
+            COUNT(DISTINCT token_fingerprint) subscriptions,
+            SUM(CASE WHEN delivered=1 THEN 1 ELSE 0 END) confirmed,
+            SUM(CASE WHEN status>=300 AND status<400 THEN 1 ELSE 0 END) redirects,
+            SUM(CASE WHEN status>=400 THEN 1 ELSE 0 END) rejected,
+            MIN(ts) first_seen,MAX(ts) last_seen FROM visits WHERE ip=?`,
+            )
+            .get(ip);
+          const rows = db
+            .prepare(
+              `SELECT v.*,p.name panel_name FROM visits v
+            JOIN panels p ON p.id=v.panel WHERE v.ip=?
+            ORDER BY v.ts DESC,v.id DESC LIMIT 100`,
+            )
+            .all(ip);
+          return json(res, 200, { ip, summary, rows });
+        }
         if (route.startsWith("/api/admin/ip-blacklist")) {
           if (!account.admin) fail(403, "无权管理共享IP黑名单");
           if (route === "/api/admin/ip-blacklist/export" && method === "GET") {
@@ -1120,7 +1147,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.8.6 ready");
+  console.log("Subscription Watch v3.8.7 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

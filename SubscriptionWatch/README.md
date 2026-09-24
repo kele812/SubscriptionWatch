@@ -2,7 +2,7 @@
 
 ## 上传插件
 
-下载 [采集插件 v3.8.3](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.8.3.zip)，在 Xboard 的插件管理中上传 ZIP 并启用。
+下载 [采集插件 v3.8.7](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.8.7.zip)，在 Xboard 的插件管理中上传 ZIP 并启用。
 
 先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；Xboard 原有的每分钟计划任务需正常运行。
 

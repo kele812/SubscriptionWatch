@@ -77,6 +77,31 @@ export function migrateRiskV33(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS ban_settings(panel INTEGER PRIMARY KEY REFERENCES panels(id) ON DELETE CASCADE,enabled INTEGER DEFAULT 0,base TEXT,prefix TEXT,auth TEXT,since INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS ban_actions(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,episode INTEGER,status TEXT,message TEXT,created INTEGER,updated INTEGER,UNIQUE(panel,uid,episode));`);
 }
+export function migrateRequestEvidence(db) {
+  for (const [table, columns] of [
+    [
+      "visits",
+      [
+        ["event_id", "TEXT"],
+        ["token_fingerprint", "TEXT"],
+        ["content_type", "TEXT"],
+        ["delivered", "INTEGER"],
+      ],
+    ],
+    ["samples", [["delivered", "INTEGER"]]],
+  ]) {
+    const existing = new Set(
+      db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((c) => c.name),
+    );
+    for (const [name, type] of columns)
+      if (!existing.has(name))
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS visit_source_time ON visits(ip,ts DESC)");
+}
 export const token = () => randomBytes(24).toString("hex");
 export function migratePanelBots(db) {
   if (

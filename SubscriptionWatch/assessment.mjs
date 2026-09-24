@@ -37,10 +37,14 @@ export function assess(
     );
   const badUa = (e) =>
     !r.uaKeywords.some((k) => e.ua.toLowerCase().includes(k.toLowerCase()));
-  const success = (e) => e.status >= 200 && e.status < 300;
+  const success = (e) =>
+    e.status >= 200 &&
+    e.status < 300 &&
+    e.delivered !== 0 &&
+    e.delivered !== false;
   const observed = db
     .prepare(
-      "SELECT ts,ip,ua,status FROM samples WHERE panel=? AND uid=? AND ts>? AND ts<=? ORDER BY ts DESC,id DESC",
+      "SELECT ts,ip,ua,status,delivered FROM samples WHERE panel=? AND uid=? AND ts>? AND ts<=? ORDER BY ts DESC,id DESC",
     )
     .all(
       panel.id,
@@ -152,8 +156,8 @@ export function assess(
       r.uaEnabled,
       "ua",
       "非指定客户端获取订阅",
-      badUa,
-      () => "UA 符合允许关键词",
+      (e) => success(e) && badUa(e),
+      (e) => (!success(e) ? "未确认返回订阅内容" : "UA 符合允许关键词"),
     ],
     [
       r.dcEnabled,
