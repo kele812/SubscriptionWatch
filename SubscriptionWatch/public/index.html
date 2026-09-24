@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.8.5" />
+    <link rel="stylesheet" href="/style.css?v=3.8.6" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.8.5 · 独立采集 · 风险评估</small>
+        <small>v3.8.6 · 独立采集 · 风险评估</small>
         <nav>
           <button data-tab="history" class="active">访问记录</button
           ><button data-tab="destinations">用户访问记录</button
@@ -65,6 +65,18 @@
             ><button>查询</button><button type="reset">重置</button
             ><button type="button" id="export">导出CSV</button>
           </form>
+          <div class="batch-toolbar">
+            <button type="button" id="historySelectPage">全选本页</button>
+            <span id="historySelectedCount">已选 0 条（仅当前页）</span>
+            <button
+              type="button"
+              id="historyBulkDelete"
+              class="danger-button"
+              disabled
+            >
+              删除所选访问记录
+            </button>
+          </div>
           <div id="historyTable"></div>
         </section>
         <section id="destinations" data-view hidden>
@@ -119,6 +131,19 @@
             <label
               ><input type="checkbox" id="showResolved" />显示已解除用户</label
             >
+          </div>
+          <div class="batch-toolbar">
+            <button type="button" id="riskSelectPage">全选本页</button>
+            <span id="riskSelectedCount">已选 0 人（仅当前页）</span>
+            <button type="button" id="riskBulkResolve" disabled>
+              取消所选风险
+            </button>
+            <button type="button" id="riskBulkCollectOn" disabled>
+              开启所选采集
+            </button>
+            <button type="button" id="riskBulkCollectOff" disabled>
+              取消所选采集
+            </button>
           </div>
           <div id="riskTable"></div>
         </section>
@@ -194,6 +219,18 @@
           <p>
             历史导入只使用保留天数内已有的中国大陆规则有效证据，永久模式可导入全部现存历史，不重新标记旧访问；旧版截断或已删除的证据无法补回。手动移除后，同一批旧证据不会再次加入，新异常证据仍可重新加入。
           </p>
+          <div class="batch-toolbar">
+            <button type="button" id="blacklistSelectPage">全选本页</button>
+            <span id="blacklistSelectedCount">已选 0 个 IP（仅当前页）</span>
+            <button
+              type="button"
+              id="blacklistBulkRemove"
+              class="danger-button"
+              disabled
+            >
+              移除所选 IP
+            </button>
+          </div>
           <div id="blacklistTable"></div>
           <div class="filters">
             <button id="blacklistPrevious">上一页</button
@@ -585,6 +622,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.8.5"></script>
+    <script src="/app.js?v=3.8.6"></script>
   </body>
 </html>

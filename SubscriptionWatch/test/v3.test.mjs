@@ -2030,3 +2030,203 @@ test("3.8.3黑名单导出需登录、导出全部有效IP且不受分页搜索�
     assert.deepEqual(text.trim().split("\n").sort(), ips.slice(2).sort());
     assert.equal(text.includes("@"), false);
   }));
+
+test("3.8.6批量操作按面板隔离，删除需密码，过期选择整批回滚", () =>
+  fixture(async (c) => {
+    const auth = await setup(c),
+      p = await panel(c, auth),
+      other = await panel(c, auth, "other");
+    assert.equal(
+      (
+        await send(c, p, [
+          event({
+            user_id: 11,
+            email: "one@example.com",
+            ip: "183.1.1.1",
+            ua: "Chrome/120",
+          }),
+          event({
+            user_id: 12,
+            email: "two@example.com",
+            ip: "183.1.1.2",
+            ua: "Chrome/120",
+          }),
+        ])
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await send(c, other, [
+          event({ user_id: 11, email: "other@example.com" }),
+        ])
+      ).status,
+      200,
+    );
+    const events = await c.api(`/api/panels/${p.id}/events`, undefined, auth),
+      ownIds = events.rows.map((r) => r.id),
+      otherId = (await c.api(`/api/panels/${other.id}/events`, undefined, auth))
+        .rows[0].id;
+    assert.equal(ownIds.length, 2);
+    const deleteRoute = `/api/panels/${p.id}/history/bulk-delete`;
+    assert.equal(
+      (await c.request(deleteRoute, { ids: ownIds, password })).status,
+      401,
+    );
+    assert.equal(
+      (await c.request(deleteRoute, { ids: ownIds, password: "wrong" }, auth))
+        .status,
+      400,
+    );
+    assert.equal(
+      (
+        await c.request(
+          deleteRoute,
+          { ids: [ownIds[0], otherId], password },
+          auth,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await c.api(`/api/panels/${p.id}/events`, undefined, auth)).total,
+      2,
+    );
+    assert.equal(
+      (await c.api(deleteRoute, { ids: ownIds, password }, auth)).count,
+      2,
+    );
+    assert.equal(
+      (await c.api(`/api/panels/${p.id}/events`, undefined, auth)).total,
+      0,
+    );
+    assert.equal(
+      (await c.api(`/api/panels/${other.id}/events`, undefined, auth)).total,
+      1,
+    );
+
+    const db = c.app.db,
+      now = Date.now();
+    for (const [uid, email] of [
+      [11, "one@example.com"],
+      [12, "two@example.com"],
+    ]) {
+      db.prepare(
+        "INSERT OR REPLACE INTO risks(panel,uid,active,started,updated,reasons) VALUES(?,?,1,?,?,?)",
+      ).run(
+        p.id,
+        uid,
+        now,
+        now,
+        JSON.stringify([
+          { code: "ua", label: "非指定客户端获取订阅", count: 1 },
+        ]),
+      );
+      db.prepare(
+        "UPDATE subjects SET verified=1,email=? WHERE panel=? AND uid=?",
+      ).run(email, p.id, uid);
+    }
+    const collectRoute = `/api/panels/${p.id}/risks/bulk-collection`,
+      resolveRoute = `/api/panels/${p.id}/risks/bulk-resolve`;
+    assert.equal(
+      (await c.api(collectRoute, { uids: [11, 12], enabled: true }, auth))
+        .count,
+      2,
+    );
+    assert.equal(
+      (
+        await c.api(
+          `/api/panels/${p.id}/destinations/settings`,
+          undefined,
+          auth,
+        )
+      ).users.length,
+      2,
+    );
+    assert.equal(
+      (await c.api(collectRoute, { uids: [11, 12], enabled: false }, auth))
+        .count,
+      2,
+    );
+    assert.equal(
+      (
+        await c.api(
+          `/api/panels/${p.id}/destinations/settings`,
+          undefined,
+          auth,
+        )
+      ).users.length,
+      0,
+    );
+    assert.equal(
+      (await c.request(resolveRoute, { uids: [11, 99999] }, auth)).status,
+      400,
+    );
+    assert.equal(
+      db
+        .prepare("SELECT count(*) n FROM risks WHERE panel=? AND active=1")
+        .get(p.id).n,
+      2,
+    );
+    assert.equal(
+      (await c.api(resolveRoute, { uids: [11, 12] }, auth)).count,
+      2,
+    );
+    assert.equal(
+      db
+        .prepare("SELECT count(*) n FROM risks WHERE panel=? AND active=1")
+        .get(p.id).n,
+      0,
+    );
+
+    const panelRow = db.prepare("SELECT * FROM panels WHERE id=?").get(p.id);
+    collectBlacklistedIPs(
+      db,
+      panelRow,
+      11,
+      [
+        { ip: "183.1.1.1", ts: now - 1000 },
+        { ip: "183.1.1.2", ts: now - 1000 },
+      ],
+      now,
+    );
+    const removeRoute = "/api/admin/ip-blacklist/bulk-remove";
+    assert.equal(
+      (
+        await c.request(
+          removeRoute,
+          { ips: ["183.1.1.1", "183.1.1.2"], password: "wrong" },
+          auth,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await c.request(
+          removeRoute,
+          { ips: ["183.1.1.1", "1.1.1.1"], password },
+          auth,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await c.api("/api/admin/ip-blacklist", undefined, auth)).total,
+      2,
+    );
+    assert.equal(
+      (
+        await c.api(
+          removeRoute,
+          { ips: ["183.1.1.1", "183.1.1.2"], password },
+          auth,
+        )
+      ).count,
+      2,
+    );
+    assert.equal(
+      (await c.api("/api/admin/ip-blacklist", undefined, auth)).total,
+      0,
+    );
+  }));

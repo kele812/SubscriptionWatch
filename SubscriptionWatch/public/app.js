@@ -3,6 +3,13 @@ let destinationBefore = null,
   destinationNext = null;
 let blacklistPage = 1,
   blacklistSettingsLoaded = false;
+const batchSelected = {
+    history: new Set(),
+    risk: new Set(),
+    blacklist: new Set(),
+  },
+  batchVisible = { history: [], risk: [], blacklist: [] },
+  batchScope = { history: "", risk: "", blacklist: "" };
 let me,
   panels = [],
   panelId = 0,
@@ -228,6 +235,69 @@ function table(target, head, rows) {
     wrap.append(p);
   }
   $(target).replaceChildren(wrap);
+}
+function updateBatch(kind) {
+  const labels = { history: "条", risk: "人", blacklist: "个 IP" };
+  const selected = batchSelected[kind],
+    visible = batchVisible[kind],
+    prefix = kind === "blacklist" ? "blacklist" : kind;
+  $(`#${prefix}SelectedCount`).textContent =
+    `已选 ${selected.size} ${labels[kind]}（仅当前页）`;
+  $(`#${prefix}SelectPage`).textContent =
+    visible.length && visible.every((key) => selected.has(key))
+      ? "取消本页选择"
+      : "全选本页";
+  $(`#${prefix}SelectPage`).disabled = !visible.length;
+  const actions = {
+    history: ["historyBulkDelete"],
+    risk: ["riskBulkResolve", "riskBulkCollectOn", "riskBulkCollectOff"],
+    blacklist: ["blacklistBulkRemove"],
+  };
+  for (const id of actions[kind]) $(`#${id}`).disabled = !selected.size;
+}
+function batchRows(kind, scope, keys) {
+  if (batchScope[kind] !== scope) batchSelected[kind].clear();
+  batchScope[kind] = scope;
+  batchVisible[kind] = keys;
+  for (const key of batchSelected[kind])
+    if (!keys.includes(key)) batchSelected[kind].delete(key);
+  updateBatch(kind);
+}
+function batchCheck(kind, key, label, disabled = false) {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.className = "batch-check";
+  input.dataset.batch = kind;
+  input.dataset.key = key;
+  input.setAttribute("aria-label", label);
+  input.checked = batchSelected[kind].has(key);
+  input.disabled = disabled;
+  input.onchange = () => {
+    if (input.checked) batchSelected[kind].add(key);
+    else batchSelected[kind].delete(key);
+    updateBatch(kind);
+  };
+  return input;
+}
+function toggleBatchPage(kind, target) {
+  const selected = batchSelected[kind],
+    keys = batchVisible[kind];
+  if (keys.every((key) => selected.has(key)))
+    for (const key of keys) selected.delete(key);
+  else for (const key of keys) selected.add(key);
+  for (const input of document.querySelectorAll(
+    `${target} input[data-batch="${kind}"]`,
+  ))
+    input.checked = selected.has(
+      kind === "blacklist" ? input.dataset.key : Number(input.dataset.key),
+    );
+  updateBatch(kind);
+}
+function resetBatch() {
+  for (const kind of Object.keys(batchSelected)) {
+    batchSelected[kind].clear();
+    batchScope[kind] = "";
+  }
 }
 function actions(...items) {
   const div = document.createElement("div");
@@ -544,6 +614,7 @@ $("#addPanel").onclick = () =>
   );
 $("#panelSelect").onchange = run(async () => {
   panelId = Number($("#panelSelect").value);
+  resetBatch();
   destinationBefore = null;
   $("#destinationUserForm").reset();
   $("#destinationFilters").reset();
@@ -559,6 +630,7 @@ $("#panelSelect").onchange = run(async () => {
 function showTab(name) {
   tab = name;
   page = 1;
+  resetBatch();
   for (const section of document.querySelectorAll("[data-view]"))
     section.hidden = section.id !== name;
   for (const b of document.querySelectorAll("[data-tab]"))
@@ -630,9 +702,15 @@ async function refresh() {
         f.elements.days.value = data.settings.days;
         blacklistSettingsLoaded = true;
       }
+      batchRows(
+        "blacklist",
+        q.toString(),
+        data.rows.map((r) => r.ip),
+      );
       table(
         "#blacklistTable",
         [
+          "选择",
           "IP",
           "来源面板",
           "触发用户ID",
@@ -642,6 +720,7 @@ async function refresh() {
           "操作",
         ],
         data.rows.map((r) => [
+          batchCheck("blacklist", r.ip, `选择黑名单 IP ${r.ip}`),
           r.ip,
           `${r.source_name}（ID ${r.source_panel}）`,
           r.source_uid,
@@ -749,10 +828,24 @@ async function refresh() {
     if (panelId && tab === "history") {
       const d = await read(endpoint("events") + "?" + query());
       rows = d.rows;
+      batchRows(
+        "history",
+        `${panelId}:${query()}`,
+        rows.map((r) => r.id),
+      );
       table(
         "#historyTable",
-        ["时间", "用户ID / 邮箱", "来源IP / 归属地", "原始UA", "状态", "详情"],
+        [
+          "选择",
+          "时间",
+          "用户ID / 邮箱",
+          "来源IP / 归属地",
+          "原始UA",
+          "状态",
+          "详情",
+        ],
         rows.map((r) => [
+          batchCheck("history", r.id, `选择访问记录 ${r.id}`),
           format(r.ts),
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
@@ -787,9 +880,15 @@ async function refresh() {
         )
       ).rows;
       const id = panelId;
+      batchRows(
+        "risk",
+        `${id}:${page}:${$("#showResolved").checked}`,
+        rows.filter((r) => r.active).map((r) => r.uid),
+      );
       table(
         "#riskTable",
         [
+          "选择",
           "用户",
           "风险等级",
           "风险原因",
@@ -799,6 +898,7 @@ async function refresh() {
           "操作",
         ],
         rows.map((r) => [
+          batchCheck("risk", r.uid, `选择可疑用户 ${r.uid}`, !r.active),
           r.uid + " / " + r.email,
           grade(r.level),
           r.reasons.map((x) => x.label + "：" + x.count).join("\n") || "—",
@@ -1061,6 +1161,69 @@ $("#blacklistNext").onclick = run(async () => {
   blacklistPage++;
   await refresh();
 });
+$("#blacklistSelectPage").onclick = () =>
+  toggleBatchPage("blacklist", "#blacklistTable");
+$("#blacklistBulkRemove").onclick = () => {
+  const ips = [...batchSelected.blacklist];
+  if (!ips.length) return;
+  ask(
+    `移除所选 ${ips.length} 个黑名单 IP`,
+    "这些 IP 将对所有面板停止生效；已有可疑标记不会自动解除。",
+    [pwd],
+    async (b) => {
+      await api("/api/admin/ip-blacklist/bulk-remove", { ...b, ips });
+      batchSelected.blacklist.clear();
+    },
+  );
+};
+$("#historySelectPage").onclick = () =>
+  toggleBatchPage("history", "#historyTable");
+$("#historyBulkDelete").onclick = () => {
+  const ids = [...batchSelected.history];
+  if (!ids.length) return;
+  ask(
+    `删除所选 ${ids.length} 条访问记录`,
+    "只删除当前面板的所选访问记录，保留可疑用户及评估历史。",
+    [pwd],
+    async (b) => {
+      await api(endpoint("history/bulk-delete"), { ...b, ids });
+      batchSelected.history.clear();
+    },
+  );
+};
+$("#riskSelectPage").onclick = () => toggleBatchPage("risk", "#riskTable");
+$("#riskBulkResolve").onclick = () => {
+  const uids = [...batchSelected.risk];
+  if (!uids.length) return;
+  ask(
+    `取消所选 ${uids.length} 人的风险标记`,
+    "旧记录不再触发，后续新增异常仍会重新标记；不会自动解封已封禁账号。",
+    [],
+    async () => {
+      await api(endpoint("risks/bulk-resolve"), { uids });
+      batchSelected.risk.clear();
+    },
+  );
+};
+for (const [id, enabled, verb] of [
+  ["riskBulkCollectOn", true, "开启"],
+  ["riskBulkCollectOff", false, "取消"],
+])
+  $(`#${id}`).onclick = () => {
+    const uids = [...batchSelected.risk];
+    if (!uids.length) return;
+    ask(
+      `${verb}所选 ${uids.length} 人的用户访问采集`,
+      enabled
+        ? "仅采集开启后新建立的连接；每个面板最多同时采集 100 人。"
+        : "停止接收新连接记录，已有记录按保留规则清理。",
+      [],
+      async () => {
+        await api(endpoint("risks/bulk-collection"), { uids, enabled });
+        batchSelected.risk.clear();
+      },
+    );
+  };
 $("#importBlacklist").onclick = () =>
   ask(
     "导入历史触发 IP",

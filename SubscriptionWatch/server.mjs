@@ -10,6 +10,7 @@ import {
 import { migrate371 } from "./migrate371.mjs";
 import { assess } from "./assessment.mjs";
 import http from "node:http";
+import { isIP } from "node:net";
 import { DatabaseSync } from "node:sqlite";
 import {
   mkdirSync,
@@ -75,6 +76,17 @@ function password(p, confirm) {
 }
 const fail = (status, message) => {
   throw Object.assign(Error(message), { status });
+};
+const batchItems = (value, valid, label) => {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 100 ||
+    new Set(value).size !== value.length ||
+    !value.every(valid)
+  )
+    fail(400, `${label}须为1～100个不重复的有效项目`);
+  return value;
 };
 export function createApp({
   dataDir = process.env.DATA_DIR || path.join(root, "data"),
@@ -580,6 +592,32 @@ export function createApp({
             removeBlacklistedIP(db, b.ip);
             return json(res, 200, { ok: true });
           }
+          if (
+            route === "/api/admin/ip-blacklist/bulk-remove" &&
+            method === "POST"
+          ) {
+            const ips = batchItems(
+              b.ips,
+              (ip) => typeof ip === "string" && isIP(ip),
+              "IP",
+            );
+            throttle("sensitive:" + account.id);
+            if (!(await verify(b.password, account.password_hash)))
+              fail(400, "当前账号密码错误");
+            const count = transaction(db, () => {
+              const placeholders = ips.map(() => "?").join(",");
+              const existing = db
+                .prepare(
+                  `SELECT COUNT(*) n FROM ip_blacklist WHERE ip IN (${placeholders}) AND removed_at=0 AND expires>?`,
+                )
+                .get(...ips, Date.now()).n;
+              if (existing !== ips.length)
+                fail(400, "所选黑名单已变化，请刷新后重试");
+              for (const ip of ips) removeBlacklistedIP(db, ip);
+              return existing;
+            });
+            return json(res, 200, { ok: true, count });
+          }
           if (route === "/api/admin/ip-blacklist/import" && method === "POST")
             return json(
               res,
@@ -695,6 +733,31 @@ export function createApp({
         if (action === "destinations/user" && method === "POST") {
           setDestinationUser(db, id, b);
           return json(res, 200, { ok: true });
+        }
+        if (action === "risks/bulk-collection" && method === "POST") {
+          const uids = batchItems(
+            b.uids,
+            (uid) => Number.isSafeInteger(uid) && uid > 0,
+            "用户ID",
+          );
+          if (typeof b.enabled !== "boolean") fail(400, "采集开关格式错误");
+          const count = transaction(db, () => {
+            const found = db
+              .prepare(
+                `SELECT r.uid,s.email,s.verified FROM risks r JOIN subjects s ON s.panel=r.panel AND s.uid=r.uid WHERE r.panel=? AND r.active=1 AND r.uid IN (${uids.map(() => "?").join(",")})`,
+              )
+              .all(id, ...uids);
+            if (found.length !== uids.length || found.some((r) => !r.verified))
+              fail(400, "所选可疑用户已变化，请刷新后重试");
+            for (const user of found)
+              setDestinationUser(db, id, {
+                uid: user.uid,
+                email: user.email,
+                enabled: b.enabled,
+              });
+            return found.length;
+          });
+          return json(res, 200, { ok: true, count });
         }
         if (action === "destinations/node" && method === "POST")
           return json(res, 200, createDestinationNode(db, id, b.name, encrypt));
@@ -940,6 +1003,25 @@ export function createApp({
           );
           return json(res, 200, { ok: true });
         }
+        if (action === "risks/bulk-resolve" && method === "POST") {
+          const uids = batchItems(
+            b.uids,
+            (uid) => Number.isSafeInteger(uid) && uid > 0,
+            "用户ID",
+          );
+          const count = transaction(db, () => {
+            const found = db
+              .prepare(
+                `SELECT uid FROM risks WHERE panel=? AND active=1 AND uid IN (${uids.map(() => "?").join(",")})`,
+              )
+              .all(id, ...uids);
+            if (found.length !== uids.length)
+              fail(400, "所选可疑用户已变化，请刷新后重试");
+            for (const user of found) resolveRisk(db, id, user.uid);
+            return found.length;
+          });
+          return json(res, 200, { ok: true, count });
+        }
         if (action === "risk-history/delete" && method === "POST") {
           await confirm();
           if (b.all === true) {
@@ -961,6 +1043,25 @@ export function createApp({
             );
           });
           return json(res, 200, { ok: true });
+        }
+        if (action === "history/bulk-delete" && method === "POST") {
+          const ids = batchItems(
+            b.ids,
+            (eventId) => Number.isSafeInteger(eventId) && eventId > 0,
+            "记录ID",
+          );
+          await confirm();
+          const count = transaction(db, () => {
+            const changed = db
+              .prepare(
+                `DELETE FROM visits WHERE panel=? AND id IN (${ids.map(() => "?").join(",")})`,
+              )
+              .run(id, ...ids).changes;
+            if (changed !== ids.length)
+              fail(400, "部分访问记录已不存在，请刷新列表");
+            return changed;
+          });
+          return json(res, 200, { ok: true, count });
         }
       }
       fail(404, "未找到接口");
@@ -1019,7 +1120,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.8.5 ready");
+  console.log("Subscription Watch v3.8.6 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

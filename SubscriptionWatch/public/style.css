@@ -355,6 +355,27 @@ header {
   padding: 10px;
   font-size: 13px;
 }
+.batch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0;
+}
+.batch-toolbar span {
+  color: var(--muted);
+  margin-right: auto;
+}
+.batch-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.batch-check {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
 .table-wrap {
   width: 100%;
   overflow: auto;
