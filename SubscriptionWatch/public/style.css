@@ -206,14 +206,20 @@ aside > small {
 }
 nav {
   display: grid;
-  gap: 7px;
-  margin-top: 42px;
+  gap: 3px;
+  margin-top: 26px;
+}
+nav .nav-heading {
+  margin: 18px 13px 5px;
+  color: #7888a5;
+  font: 10px var(--mono);
+  letter-spacing: 1.4px;
 }
 nav button {
   background: transparent;
   border-color: transparent;
   text-align: left;
-  padding: 13px 14px;
+  padding: 10px 13px;
   color: var(--muted);
   position: relative;
 }
@@ -254,7 +260,7 @@ nav button.active::after {
 }
 main {
   margin-left: 232px;
-  padding: 34px 36px 50px;
+  padding: 28px 36px 50px;
   max-width: 1760px;
 }
 header {
@@ -262,8 +268,8 @@ header {
   justify-content: space-between;
   gap: 22px;
   align-items: center;
-  padding-bottom: 25px;
-  margin-bottom: 26px;
+  padding-bottom: 18px;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
 .eyebrow {
@@ -292,12 +298,12 @@ header {
   gap: 1px;
   background: var(--line);
   border: 1px solid var(--line);
-  margin-bottom: 30px;
+  margin-bottom: 22px;
   border-radius: 5px;
   overflow: hidden;
 }
 .metrics > div {
-  padding: 21px 23px;
+  padding: 15px 21px;
   background: var(--surface);
   position: relative;
 }
@@ -319,8 +325,8 @@ header {
 }
 .metrics strong {
   display: block;
-  font: 500 32px var(--mono);
-  margin-top: 13px;
+  font: 500 27px var(--mono);
+  margin-top: 8px;
   letter-spacing: -1px;
   color: var(--text);
 }
@@ -397,7 +403,7 @@ th {
 }
 th,
 td {
-  padding: 16px;
+  padding: 11px 13px;
   border-bottom: 1px solid #253049;
 }
 td {
@@ -460,12 +466,47 @@ td:nth-child(4) {
 }
 .settings-form,
 .settings-block {
-  max-width: 880px;
+  max-width: 980px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 5px;
-  padding: 27px 30px;
-  margin-bottom: 24px;
+  padding: 22px 26px;
+  margin-bottom: 18px;
+}
+.help-details {
+  margin: 12px 0 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  color: var(--muted);
+}
+.help-details summary {
+  color: var(--cyan);
+  cursor: pointer;
+  width: fit-content;
+}
+.help-details p {
+  margin: 10px 0 0;
+}
+#sourceIpSummary,
+#previewResult {
+  border-left: 3px solid var(--cyan);
+  background: #12302f66;
+  padding: 10px 14px;
+  line-height: 1.7;
+}
+#previewResult:empty {
+  display: none;
+}
+#previewExamples {
+  margin-top: 12px;
+}
+.evidence-hint {
+  margin: 7px 0 14px;
+  padding: 9px 12px;
+  color: #c9d9ed;
+  background: #1a2739;
+  border-radius: 4px;
+  line-height: 1.65;
 }
 .settings-form h2,
 .settings-block h2 {
@@ -758,6 +799,9 @@ dialog::backdrop {
   }
 }
 @media (max-width: 760px) {
+  nav .nav-heading {
+    display: none;
+  }
   aside {
     position: static;
     width: 100%;

@@ -4,21 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.8.7" />
+    <link rel="stylesheet" href="/style.css?v=3.8.8" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.8.7 · 独立采集 · 风险评估</small>
+        <small>v3.8.8 · 独立采集 · 风险评估</small>
         <nav>
+          <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
           ><button data-tab="sourceIp">来源 IP 调查</button
           ><button data-tab="destinations">用户访问记录</button
+          ><span class="nav-heading">处置</span
           ><button data-tab="risk">可疑用户</button
           ><button data-tab="riskHistory">评估历史</button
           ><button data-tab="whitelist">用户白名单</button
           ><button data-tab="ipBlacklist">IP 黑名单</button
+          ><span class="nav-heading">设置</span
           ><button data-tab="panelSettings">面板设置</button
           ><button data-tab="telegram">TG 机器人</button
           ><button data-tab="account">账号安全</button
@@ -82,10 +85,11 @@
         </section>
         <section id="sourceIp" data-view hidden>
           <div class="settings-block">
-            <h2>跨面板来源 IP 调查</h2>
+            <h2>来源 IP 核查</h2>
             <p>
-              查询同一来源 IP
-              访问过哪些面板和用户的订阅。请求归属某个订阅，不代表该用户本人发起；跳转和被拒绝的请求也不代表拿到了订阅内容。
+              查询一个 IP
+              在各面板出现的请求。先看是否真正返回订阅，再打开“核查链路”查看直连
+              IP、IP 取值依据与请求编号。
             </p>
             <form id="sourceIpForm" class="filters">
               <label
@@ -97,6 +101,15 @@
               <button>查询</button>
             </form>
             <p id="sourceIpSummary"></p>
+            <details class="help-details">
+              <summary>这些记录能证明什么？</summary>
+              <p>
+                请求归属某个订阅，不等于账号本人发起。直连 IP 是 Xboard
+                实际连接的上游；如果使用反代，来源 IP
+                可能来自可信代理转发。请求编号可用于对照插件记录，但旧版插件没有编号。要核对反代日志，需在反代机器上按时间与
+                IP 另行查找。
+              </p>
+            </details>
             <div id="sourceIpResults"></div>
           </div>
         </section>
@@ -188,10 +201,8 @@
         <section id="ipBlacklist" data-view hidden>
           <h2>所有面板共用的 IP 黑名单</h2>
           <p>
-            各面板共同收集参与触发“中国大陆多 IP”规则的有效
-            IP。其他客户在任意面板通过黑名单 IP
-            成功获取订阅，即标记为可疑用户。当前面板的用户白名单、IP 白名单和
-            Cloudflare 豁免优先。
+            所有面板共用。自动收集的 IP
+            可标记为“已复核”；复核只记录人工检查，不改变名单生效方式。
           </p>
           <form id="blacklistSettings" class="filters">
             <label
@@ -211,25 +222,27 @@
             /></label>
             <button>保存黑名单设置</button>
           </form>
-          <p>
-            “记录 IP 黑名单”：开启后，各面板自动记录参与触发中国大陆多 IP
-            规则的有效 IP；关闭后不新增、不更新黑名单记录，也不能导入历史
-            IP。关闭不会删除已有记录，已有记录仍按保留天数到期。
-          </p>
-          <p>
-            “启用黑名单命中规则”：控制客户的新订阅请求命中已有黑名单时，是否标记为可疑用户，与记录开关独立。用户白名单、IP
-            白名单及已开启的 Cloudflare 豁免优先。
-          </p>
-          <p>
-            保留天数默认7天，从最近一次参与触发的有效访问时间计算。输入999表示永久保存，不是999天后删除；现有未过期条目和新增条目均永久保留，仍可手动移除。缩短天数或从999改为普通天数，会按来源访问时间重新限制期限；延长普通天数只用于后续新证据。已过期或已移除条目不自动恢复，已有可疑标记不会自动解除。
-          </p>
-          <p>
-            导出全部有效黑名单 IP（所有面板共用），TXT
-            格式，每行一个；不受搜索和分页限制，不含已过期或已移除的 IP。
-          </p>
+          <details class="help-details">
+            <summary>黑名单如何收集和生效</summary>
+            <p>
+              记录开关开启后，各面板自动收集参与触发中国大陆多 IP 规则的有效
+              IP；关闭后不新增、不更新。命中规则开关独立控制：新请求通过名单中的
+              IP 成功获取订阅时标记可疑。用户白名单、IP 白名单和已启用的
+              Cloudflare 豁免优先。
+            </p>
+            <p>
+              默认保留7天，从最近参与触发的访问时间计算。999表示永久；缩短天数会限制现有条目，移除的旧证据不会自动恢复。导出为全部有效
+              IP 的 TXT 文件，不受当前分页影响。
+            </p>
+          </details>
           <form id="blacklistFilters" class="filters">
             <label
               >完整 IP 地址<input name="ip" placeholder="留空显示全部" /></label
+            ><label
+              >查看<select name="state">
+                <option value="active">生效中</option>
+                <option value="removed">已移除</option>
+              </select></label
             ><button>查询</button>
             <button type="button" id="exportBlacklist">
               一键导出 IP 黑名单
@@ -237,9 +250,13 @@
             <button type="button" id="importBlacklist">导入历史触发 IP</button>
           </form>
           <p id="blacklistImportStatus" role="status"></p>
-          <p>
-            历史导入只使用保留天数内已有的中国大陆规则有效证据，永久模式可导入全部现存历史，不重新标记旧访问；旧版截断或已删除的证据无法补回。手动移除后，同一批旧证据不会再次加入，新异常证据仍可重新加入。
-          </p>
+          <details class="help-details">
+            <summary>历史导入说明</summary>
+            <p>
+              只导入现存的中国大陆多 IP
+              规则有效证据；不会重新评估旧请求。已截断或删除的证据无法补回。移除后，旧证据不再加入，新异常访问仍可重新收集。
+            </p>
+          </details>
           <div class="batch-toolbar">
             <button type="button" id="blacklistSelectPage">全选本页</button>
             <span id="blacklistSelectedCount">已选 0 个 IP（仅当前页）</span>
@@ -446,9 +463,10 @@
               </p>
             </fieldset>
             <p id="rulesDirty" role="status">规则已保存</p>
-            <button type="button" id="previewRules">预览影响</button
+            <button type="button" id="previewRules">试运行规则</button
             ><button>保存风险规则</button>
             <p id="previewResult" role="status"></p>
+            <div id="previewExamples"></div>
           </form>
           <form id="banForm" class="settings-form">
             <h2>可疑用户自动封禁 Xboard 账号</h2>
@@ -643,6 +661,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.8.7"></script>
+    <script src="/app.js?v=3.8.8"></script>
   </body>
 </html>

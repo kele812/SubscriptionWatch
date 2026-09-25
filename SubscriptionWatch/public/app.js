@@ -203,6 +203,33 @@ function riskDetail(r) {
     })),
   };
 }
+function evidenceHint(code) {
+  if (code === "ua")
+    return "核查提示：UA 可修改。这条记录只说明请求使用了未列入允许名单的 UA，不能据此认定账号本人操作。";
+  if (code === "cloud")
+    return "核查提示：云厂商依据 IP 数据库的组织名匹配。建议打开对应访问记录，对照直连 IP 和反代日志。";
+  if (code === "blacklist")
+    return "核查提示：此 IP 来自跨面板共享名单。先核对名单来源面板与加入时间，再决定是否处置。";
+  return "核查提示：多个不同 IP 已成功请求同一账号订阅；这说明订阅被多处使用，不能单独证明是谁操作。";
+}
+function sourceTraceDetail(r) {
+  return {
+    时间: format(r.ts),
+    用户ID: r.uid,
+    邮箱: r.email,
+    来源IP: r.ip,
+    直接连接IP: r.peer_ip,
+    IP取值依据: r.ip_source,
+    原始UA: r.ua,
+    状态: requestStatusText(r.status),
+    确认返回订阅:
+      r.delivered === 1 ? "是" : r.delivered === 0 ? "否" : "旧版未核实",
+    请求编号: r.event_id,
+    订阅指纹: r.token_fingerprint,
+    内容类型: r.content_type,
+    耗时毫秒: r.ms,
+  };
+}
 function table(target, head, rows) {
   const wrap = document.createElement("div");
   wrap.className = "table-wrap";
@@ -348,6 +375,7 @@ function detail(data) {
         `${duration ? `最近 ${duration} · ` : ""}${count} · 阈值 ${reason.阈值}${stats?.unit || ""}${reason.附加条件 ? ` · ${reason.附加条件}` : ""}`,
         "evidence-summary",
       );
+      line(card, evidenceHint(reason.代码), "evidence-hint");
       for (const hit of reason.访问证据) {
         const entry = document.createElement("div");
         entry.className = "evidence-hit";
@@ -437,7 +465,14 @@ function detail(data) {
     toggle.textContent = "连接详情";
     extra.append(toggle);
     line(extra, `直接连接 IP：${data.直接连接IP || "未知"}`);
-    line(extra, `IP 取值依据：${data.IP取值依据 || "未知"}`);
+    line(
+      extra,
+      `来源 IP 取值：${data.IP取值依据 === "trusted_proxy" ? "可信代理转发" : data.IP取值依据 === "peer" ? "直接连接" : "旧版未知"}`,
+    );
+    line(
+      extra,
+      "来源 IP 是服务器记录的请求来源，不能单独证明账号本人发起。需结合上游反代日志核查。",
+    );
     line(extra, `耗时：${data.耗时毫秒 ?? "未知"} 毫秒`);
     if (data.请求编号) line(extra, `请求编号：${data.请求编号}`);
     if (data.订阅指纹) line(extra, `订阅指纹：${data.订阅指纹}`);
@@ -704,19 +739,20 @@ async function refresh() {
         );
         const s = d.summary;
         $("#sourceIpSummary").textContent =
-          `共 ${s.requests} 次请求，涉及 ${s.panels} 个面板、${s.users} 个用户；确认返回订阅 ${s.confirmed} 次，跳转 ${s.redirects} 次，被拒绝或出错 ${s.rejected} 次。已记录订阅指纹 ${s.subscriptions} 个（旧插件上报无指纹）。最早 ${format(s.first_seen)}，最近 ${format(s.last_seen)}。下表最多显示最近 100 条。`;
+          `${sourceIpQuery} · ${geoText(d.geo || {})} ｜ 确认返回订阅 ${s.confirmed || 0} 次 · 跳转 ${s.redirects || 0} 次 · 失败 ${s.rejected || 0} 次 ｜ 涉及 ${s.panels} 个面板、${s.users} 个用户（共 ${s.requests} 次请求；显示最近 100 条）`;
         table(
           "#sourceIpResults",
-          ["时间", "面板", "用户ID / 邮箱", "响应", "原始UA", "请求证据"],
+          ["时间", "面板", "用户", "请求结果", "核查"],
           d.rows.map((r) => [
             format(r.ts),
             r.panel_name,
             `${r.uid} / ${r.email}`,
-            `${requestStatusText(r.status)} · ${r.delivered === 1 ? "确认返回订阅" : r.delivered === 0 ? "未确认返回" : "旧版未核实"}`,
-            r.ua || "（空）",
-            r.event_id
-              ? `编号 ${r.event_id}\n指纹 ${r.token_fingerprint ? r.token_fingerprint.slice(0, 16) + "…" : "旧版无"}`
-              : "旧版无编号",
+            r.delivered === 1
+              ? "已确认返回订阅"
+              : r.delivered === 0
+                ? requestStatusText(r.status)
+                : "旧版未核实",
+            button("核查链路", () => detail(sourceTraceDetail(r))),
           ]),
         );
       } else {
@@ -727,6 +763,7 @@ async function refresh() {
     if (tab === "ipBlacklist") {
       const q = new URLSearchParams(new FormData($("#blacklistFilters")));
       q.set("page", blacklistPage);
+      const removed = q.get("state") === "removed";
       const data = await read("/api/admin/ip-blacklist?" + q);
       if (!blacklistSettingsLoaded) {
         const f = $("#blacklistSettings");
@@ -738,7 +775,7 @@ async function refresh() {
       batchRows(
         "blacklist",
         q.toString(),
-        data.rows.map((r) => r.ip),
+        data.rows.filter((r) => !r.removed_at).map((r) => r.ip),
       );
       table(
         "#blacklistTable",
@@ -747,33 +784,66 @@ async function refresh() {
           "IP",
           "来源面板",
           "触发用户ID",
-          "来源访问时间",
-          "加入时间",
-          "到期时间",
+          "来源访问",
+          "复核状态",
+          "有效期",
           "操作",
         ],
         data.rows.map((r) => [
-          batchCheck("blacklist", r.ip, `选择黑名单 IP ${r.ip}`),
+          batchCheck(
+            "blacklist",
+            r.ip,
+            `选择黑名单 IP ${r.ip}`,
+            !!r.removed_at,
+          ),
           r.ip,
           `${r.source_name}（ID ${r.source_panel}）`,
           r.source_uid,
           format(r.source_ts),
-          format(r.added),
-          r.expires === Number.MAX_SAFE_INTEGER
-            ? "永久保留"
-            : format(r.expires),
-          button("移除", () =>
-            ask(
-              "移除共享黑名单 IP",
-              `${r.ip} 将对所有面板停止生效。旧证据不会重复加入，新异常证据仍可重新加入；不会解除已有可疑标记。`,
-              [pwd],
-              (b) => api("/api/admin/ip-blacklist/remove", { ...b, ip: r.ip }),
-            ),
+          r.removed_at
+            ? `已移除 · ${format(r.removed_at)}`
+            : r.reviewed_at
+              ? `已复核 · ${r.reviewed_by}\n${format(r.reviewed_at)}`
+              : "自动收集 · 待复核",
+          r.removed_at
+            ? "已停止生效"
+            : r.expires === Number.MAX_SAFE_INTEGER
+              ? "永久保留"
+              : format(r.expires),
+          actions(
+            ...(r.removed_at || r.reviewed_at
+              ? []
+              : [
+                  button("标为已复核", () =>
+                    ask(
+                      "确认已核查此 IP",
+                      "仅记录人工复核状态；不会改变黑名单命中规则，也不会自动解除用户风险。",
+                      [],
+                      () => api("/api/admin/ip-blacklist/review", { ip: r.ip }),
+                    ),
+                  ),
+                ]),
+            ...(r.removed_at
+              ? []
+              : [
+                  button("移除", () =>
+                    ask(
+                      "移除共享黑名单 IP",
+                      `${r.ip} 将对所有面板停止生效。旧证据不会重复加入，新异常证据仍可重新加入；不会解除已有可疑标记。`,
+                      [pwd],
+                      (b) =>
+                        api("/api/admin/ip-blacklist/remove", {
+                          ...b,
+                          ip: r.ip,
+                        }),
+                    ),
+                  ),
+                ]),
           ),
         ]),
       );
       $("#blacklistPageInfo").textContent =
-        `共 ${data.total} 个有效IP · 第 ${blacklistPage} 页`;
+        `共 ${data.total} 个${removed ? "已移除" : "生效中"} IP · 第 ${blacklistPage} 页`;
       $("#blacklistPrevious").disabled = blacklistPage <= 1;
       $("#blacklistNext").disabled = blacklistPage * 100 >= data.total;
     }
@@ -1584,6 +1654,7 @@ function updateRuleConditions(dirty = true) {
     ? "修改尚未保存；保存后才生效"
     : "规则已保存";
   $("#previewResult").textContent = "";
+  $("#previewExamples").replaceChildren();
 }
 $("#rulesForm").addEventListener("input", () => updateRuleConditions());
 $("#previewRules").onclick = run(async () => {
@@ -1602,7 +1673,16 @@ $("#previewRules").onclick = run(async () => {
       return;
     }
     $("#previewResult").textContent =
-      "按当前条件预计可疑用户 " + r.counts.suspicious + " 人；" + r.note;
+      `试运行：新增命中 ${r.changes.new} 人 · 仍匹配 ${r.changes.unchanged} 人 · 当前标记但不再匹配 ${r.changes.noLongerMatched} 人。${r.note}`;
+    table(
+      "#previewExamples",
+      ["用户", "结果", "命中规则"],
+      r.examples.map((x) => [
+        `${x.uid} / ${x.email}`,
+        x.kind === "new" ? "新增命中" : "当前标记不再匹配",
+        x.reasons.join("、") || "—",
+      ]),
+    );
   } finally {
     button.disabled = false;
   }

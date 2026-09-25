@@ -101,6 +101,20 @@ export function migrateRequestEvidence(db) {
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   }
   db.exec("CREATE INDEX IF NOT EXISTS visit_source_time ON visits(ip,ts DESC)");
+  const blacklistColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(ip_blacklist)")
+      .all()
+      .map((c) => c.name),
+  );
+  if (!blacklistColumns.has("reviewed_at"))
+    db.exec(
+      "ALTER TABLE ip_blacklist ADD COLUMN reviewed_at INTEGER NOT NULL DEFAULT 0",
+    );
+  if (!blacklistColumns.has("reviewed_by"))
+    db.exec(
+      "ALTER TABLE ip_blacklist ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT ''",
+    );
 }
 export const token = () => randomBytes(24).toString("hex");
 export function migratePanelBots(db) {

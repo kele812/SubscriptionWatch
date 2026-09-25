@@ -15,6 +15,7 @@ import {
   collectBlacklistedIPs,
   configureBlacklist,
   removeBlacklistedIP,
+  reviewBlacklistedIP,
   cleanBlacklist,
   importBlacklistHistory,
   PERMANENT,
@@ -76,6 +77,37 @@ const row = (ip, ts = now - 1000, status = 200) => ({
   ua: "NetFlow",
 });
 const source = () => [1, 2, 3, 4].map((n) => row(`1.0.0.${n}`));
+
+test("黑名单人工复核保留来源，移除后由新证据重收集时回到待复核", () =>
+  fixture(({ db, panel, add }) => {
+    add(1, 1, source());
+    reviewBlacklistedIP(db, "1.0.0.1", "owner", now + 1);
+    const reviewed = blacklistRows(
+      db,
+      new URLSearchParams(),
+      now + 1,
+    ).rows.find((r) => r.ip === "1.0.0.1");
+    assert.equal(reviewed.reviewed_by, "owner");
+    assert.equal(reviewed.reviewed_at, now + 1);
+    assert.equal(reviewed.source_panel, 1);
+    removeBlacklistedIP(db, "1.0.0.1", now + 2);
+    assert.throws(() => reviewBlacklistedIP(db, "1.0.0.1", "owner", now + 3));
+    const removed = blacklistRows(
+      db,
+      new URLSearchParams("state=removed"),
+      now + 3,
+    );
+    assert.equal(removed.total, 1);
+    assert.equal(removed.rows[0].ip, "1.0.0.1");
+    collectBlacklistedIPs(db, panel(1), 1, [row("1.0.0.1", now + 4)], now + 4);
+    const collected = blacklistRows(
+      db,
+      new URLSearchParams(),
+      now + 4,
+    ).rows.find((r) => r.ip === "1.0.0.1");
+    assert.equal(collected.reviewed_at, 0);
+    assert.equal(collected.reviewed_by, "");
+  }));
 
 test("共享黑名单收集全部有效参与IP，跨面板新请求命中，旧请求/失败请求不标记", () =>
   fixture(({ db, panel, subject, add, reasons }) => {

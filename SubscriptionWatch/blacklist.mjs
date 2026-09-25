@@ -41,7 +41,9 @@ export function collectBlacklistedIPs(db, panel, uid, rows, now) {
     VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(ip) DO UPDATE SET
     source_panel=excluded.source_panel,source_name=excluded.source_name,source_uid=excluded.source_uid,source_ts=excluded.source_ts,
     added=CASE WHEN ip_blacklist.removed_at>0 OR ip_blacklist.expires<=? THEN excluded.added ELSE ip_blacklist.added END,
-    expires=excluded.expires,removed_at=0
+    expires=excluded.expires,removed_at=0,
+    reviewed_at=CASE WHEN ip_blacklist.removed_at>0 OR ip_blacklist.expires<=? THEN 0 ELSE ip_blacklist.reviewed_at END,
+    reviewed_by=CASE WHEN ip_blacklist.removed_at>0 OR ip_blacklist.expires<=? THEN '' ELSE ip_blacklist.reviewed_by END
     WHERE excluded.source_ts>ip_blacklist.source_ts AND excluded.source_ts>ip_blacklist.removed_at`);
   let changed = 0;
   for (const e of latest.values())
@@ -53,6 +55,8 @@ export function collectBlacklistedIPs(db, panel, uid, rows, now) {
       e.ts,
       now,
       settings.days === 999 ? PERMANENT : e.ts + settings.days * DAY,
+      now,
+      now,
       now,
     ).changes;
   return changed;
@@ -90,12 +94,32 @@ export function removeBlacklistedIP(db, ip, now = Date.now()) {
     "UPDATE ip_blacklist SET removed_at=?,expires=MIN(expires,?) WHERE ip=?",
   ).run(now, now, ip);
 }
+export function reviewBlacklistedIP(db, ip, username, now = Date.now()) {
+  if (typeof ip !== "string" || !isIP(ip)) throw Error("请输入有效IP");
+  if (typeof username !== "string" || !username.trim())
+    throw Error("复核账号无效");
+  const result = db
+    .prepare(
+      "UPDATE ip_blacklist SET reviewed_at=?,reviewed_by=? WHERE ip=? AND removed_at=0 AND expires>?",
+    )
+    .run(now, username, ip, now);
+  if (!result.changes) throw Error("该IP已不在有效黑名单中，请刷新后重试");
+}
 export function blacklistRows(db, q, now = Date.now()) {
   const search = (q.get("ip") || "").trim();
   if (search && !isIP(search)) throw Error("请填写完整IP地址查询");
   const page = Math.max(1, Math.min(1000000, Number(q.get("page")) || 1));
-  const where = "removed_at=0 AND expires>?" + (search ? " AND ip=?" : "");
-  const args = search ? [now, search] : [now];
+  const removed = q.get("state") === "removed";
+  const where =
+    (removed ? "removed_at>0" : "removed_at=0 AND expires>?") +
+    (search ? " AND ip=?" : "");
+  const args = removed
+    ? search
+      ? [search]
+      : []
+    : search
+      ? [now, search]
+      : [now];
   return {
     settings: blacklistSettings(db),
     page,
@@ -104,7 +128,7 @@ export function blacklistRows(db, q, now = Date.now()) {
       .get(...args).n,
     rows: db
       .prepare(
-        `SELECT * FROM ip_blacklist WHERE ${where} ORDER BY added DESC,ip LIMIT 100 OFFSET ?`,
+        `SELECT * FROM ip_blacklist WHERE ${where} ORDER BY ${removed ? "removed_at" : "added"} DESC,ip LIMIT 100 OFFSET ?`,
       )
       .all(...args, (Math.floor(page) - 1) * 100),
   };

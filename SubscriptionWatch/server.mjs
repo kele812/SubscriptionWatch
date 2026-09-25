@@ -46,6 +46,7 @@ import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { evaluate, resolveRisk, riskRows, riskLevel } from "./risk.mjs";
 import {
   blacklistRows,
+  reviewBlacklistedIP,
   configureBlacklist,
   removeBlacklistedIP,
   importBlacklistHistory,
@@ -586,7 +587,7 @@ export function createApp({
             ORDER BY v.ts DESC,v.id DESC LIMIT 100`,
             )
             .all(ip);
-          return json(res, 200, { ip, summary, rows });
+          return json(res, 200, { ip, geo: geo.lookup(ip), summary, rows });
         }
         if (route.startsWith("/api/admin/ip-blacklist")) {
           if (!account.admin) fail(403, "无权管理共享IP黑名单");
@@ -605,6 +606,10 @@ export function createApp({
           }
           if (route === "/api/admin/ip-blacklist" && method === "GET")
             return json(res, 200, blacklistRows(db, u.searchParams));
+          if (route === "/api/admin/ip-blacklist/review" && method === "POST") {
+            reviewBlacklistedIP(db, b.ip, account.username);
+            return json(res, 200, { ok: true });
+          }
           if (
             route === "/api/admin/ip-blacklist/settings" &&
             method === "POST"
@@ -814,15 +819,44 @@ export function createApp({
           const rules = validateRules(b.rules),
             candidate = { ...panel, rules: JSON.stringify(rules) };
           const counts = { suspicious: 0, none: 0 },
+            changes = { new: 0, unchanged: 0, noLongerMatched: 0 },
+            examples = [],
             now = Date.now();
+          const currentRisks = new Set(
+            db
+              .prepare("SELECT uid FROM risks WHERE panel=? AND active=1")
+              .all(id)
+              .map((r) => r.uid),
+          );
           for (const subject of db
             .prepare("SELECT * FROM subjects WHERE panel=?")
-            .all(id))
-            counts[riskLevel(assess(db, candidate, subject, now, geo))]++;
+            .all(id)) {
+            const reasons = assess(db, candidate, subject, now, geo),
+              matched = reasons.length > 0,
+              existing = currentRisks.has(subject.uid);
+            counts[matched ? "suspicious" : "none"]++;
+            const kind = matched
+              ? existing
+                ? "unchanged"
+                : "new"
+              : existing
+                ? "noLongerMatched"
+                : null;
+            if (kind) changes[kind]++;
+            if (kind && kind !== "unchanged" && examples.length < 30)
+              examples.push({
+                uid: subject.uid,
+                email: subject.email,
+                kind,
+                reasons: reasons.map((r) => r.label),
+              });
+          }
           return json(res, 200, {
             counts,
+            changes,
+            examples,
             at: now,
-            note: "地域规则按保留样本预览；UA、云服务器和黑名单仅预览已有触发证据，新请求才会新增标记。预览不收集黑名单，不发通知、不封禁，旧标记不自动解除。",
+            note: "仅模拟现存样本；UA、云服务器和黑名单不会预测未来请求。预览不修改风险、黑名单、通知或封禁；不再匹配的旧标记不会自动解除。",
           });
         }
         if (action === "settings" && method === "POST") {
@@ -1147,7 +1181,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.8.7 ready");
+  console.log("Subscription Watch v3.8.8 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

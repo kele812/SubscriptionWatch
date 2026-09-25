@@ -37,7 +37,7 @@ test("详情不重复展示；IP规则只标红参与IP，UA规则只标红异�
   });
   vm.runInContext(
     code.slice(
-      code.indexOf("function detail(data)"),
+      code.indexOf("function evidenceHint(code)"),
       code.indexOf("function grade(level)"),
     ),
     context,

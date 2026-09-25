@@ -1615,6 +1615,17 @@ test("3.7.2取消观察期，旧观察设置不阻止下一次领取，规则关
       .get().n;
     const preview = await c.api(url + "/preview", { rules: defaults }, auth);
     assert.equal(preview.counts.suspicious, 1);
+    assert.equal(preview.changes.unchanged, 1);
+    assert.equal(preview.changes.new, 0);
+    const relaxed = await c.api(
+      url + "/preview",
+      {
+        rules: { ...defaults, uaEnabled: false },
+      },
+      auth,
+    );
+    assert.equal(relaxed.changes.noLongerMatched, 1);
+    assert.equal(relaxed.examples[0].kind, "noLongerMatched");
     assert.equal(
       c.app.db.prepare("SELECT count(*) n FROM risk_history").get().n,
       snapshot,
