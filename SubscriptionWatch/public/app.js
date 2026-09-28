@@ -20,6 +20,7 @@ let me,
   toastTimer,
   refreshBusy = false,
   refreshPending = false;
+let userHistoryState = null;
 function requestStatusText(value) {
   const code = Number(value);
   const meanings = {
@@ -203,6 +204,96 @@ function riskDetail(r) {
     })),
   };
 }
+const userHistoryKinds = {
+  visits: { target: "#userHistoryVisits", more: "#userHistoryVisitsMore" },
+  risks: { target: "#userHistoryRisks", more: "#userHistoryRisksMore" },
+  actions: { target: "#userHistoryActions", more: "#userHistoryActionsMore" },
+};
+function renderUserHistory(kind) {
+  const state = userHistoryState?.[kind];
+  if (!state) return;
+  const { target, more } = userHistoryKinds[kind];
+  const rows = state.rows.map((r) => {
+    if (kind === "visits")
+      return [
+        format(r.ts),
+        `${r.ip || "—"}\n${geoText(r.geo || {})}`,
+        r.ua || "（空）",
+        requestStatusText(r.status),
+      ];
+    if (kind === "risks")
+      return [
+        format(r.ts),
+        r.action || "—",
+        r.reasons.map((x) => x.label).join("、") || "—",
+      ];
+    return [
+      format(r.created),
+      r.kind === "unban" ? "解封" : "封禁",
+      r.origin === "manual" ? "手动" : "自动",
+      r.status || "—",
+      r.message || "—",
+    ];
+  });
+  const heads = {
+    visits: ["时间", "来源 IP / 归属地", "原始 UA", "状态"],
+    risks: ["时间", "评估结果", "触发规则"],
+    actions: ["提交时间", "操作", "来源", "状态", "说明"],
+  };
+  table(target, heads[kind], rows);
+  $(more).hidden = !state.next;
+  $(more).disabled = state.loading;
+}
+async function loadUserHistory(kind) {
+  const current = userHistoryState;
+  const state = current?.[kind];
+  if (!state || state.loading || (state.loaded && !state.next)) return;
+  state.loading = true;
+  const { target, more } = userHistoryKinds[kind];
+  if (!state.loaded) $(target).textContent = "加载中…";
+  $(more).disabled = true;
+  try {
+    const cursor = state.next ? `&before=${state.next}` : "";
+    const data = await api(
+      `/api/panels/${current.panelId}/user-history?uid=${current.uid}&kind=${kind}${cursor}`,
+    );
+    if (userHistoryState !== current) return;
+    state.rows.push(...data.rows);
+    state.next = data.next;
+    state.loaded = true;
+    renderUserHistory(kind);
+  } catch (error) {
+    if (userHistoryState !== current) return;
+    if (!state.loaded) $(target).textContent = `加载失败：${error.message}`;
+    else toast(error.message);
+    $(more).hidden = false;
+  } finally {
+    state.loading = false;
+    if (userHistoryState === current) $(more).disabled = false;
+  }
+}
+function openUserHistory(id, uid, email) {
+  userHistoryState = { panelId: id, uid };
+  for (const kind of Object.keys(userHistoryKinds)) {
+    userHistoryState[kind] = {
+      rows: [],
+      next: null,
+      loaded: false,
+      loading: false,
+    };
+    $(userHistoryKinds[kind].target).textContent = "加载中…";
+    $(userHistoryKinds[kind].more).hidden = true;
+  }
+  $("#userHistoryTitle").textContent = `用户历史记录 · ${uid} / ${email}`;
+  $("#userHistoryDialog").showModal();
+  for (const kind of Object.keys(userHistoryKinds)) loadUserHistory(kind);
+}
+for (const kind of Object.keys(userHistoryKinds))
+  $(userHistoryKinds[kind].more).onclick = run(() => loadUserHistory(kind));
+$("#closeUserHistory").onclick = () => $("#userHistoryDialog").close();
+$("#userHistoryDialog").addEventListener("close", () => {
+  userHistoryState = null;
+});
 function evidenceHint(code) {
   if (code === "ua")
     return "核查提示：UA 可修改。这条记录只说明请求使用了未列入允许名单的 UA，不能据此认定账号本人操作。";
@@ -1026,6 +1117,7 @@ async function refresh() {
             : "未开启",
           actions(
             button("详情", () => detail(riskDetail(r))),
+            button("历史记录", () => openUserHistory(id, r.uid, r.email)),
             riskCollectionAction(id, r, collectingUsers.has(r.uid)),
             button("取消风险", () =>
               ask("取消风险", "旧记录不重复触发，新增异常仍可标记。", [], () =>

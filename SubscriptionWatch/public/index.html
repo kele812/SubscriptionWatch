@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.8.8" />
+    <link rel="stylesheet" href="/style.css?v=3.8.9" />
   </head>
   <body>
     <div id="app" hidden>
@@ -648,6 +648,34 @@
       <div id="detailEvidence"></div>
       <button id="closeDetail">关闭</button>
     </dialog>
+    <dialog id="userHistoryDialog" aria-labelledby="userHistoryTitle">
+      <h2 id="userHistoryTitle">用户历史记录</h2>
+      <p>
+        仅显示当前面板的数据。访问记录按保留设置清理；评估和封禁记录独立保存。
+      </p>
+      <section class="user-history-section">
+        <h3>订阅访问</h3>
+        <div id="userHistoryVisits"></div>
+        <button id="userHistoryVisitsMore" type="button" hidden>
+          加载更多访问记录
+        </button>
+      </section>
+      <section class="user-history-section">
+        <h3>风险评估变化</h3>
+        <div id="userHistoryRisks"></div>
+        <button id="userHistoryRisksMore" type="button" hidden>
+          加载更多评估记录
+        </button>
+      </section>
+      <section class="user-history-section">
+        <h3>封禁／解封操作</h3>
+        <div id="userHistoryActions"></div>
+        <button id="userHistoryActionsMore" type="button" hidden>
+          加载更多账号操作
+        </button>
+      </section>
+      <button id="closeUserHistory" type="button">关闭</button>
+    </dialog>
     <dialog id="actionDialog">
       <form id="actionForm">
         <h2 id="actionTitle"></h2>
@@ -661,6 +689,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.8.8"></script>
+    <script src="/app.js?v=3.8.9"></script>
   </body>
 </html>

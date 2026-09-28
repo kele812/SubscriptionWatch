@@ -209,6 +209,8 @@ export function initialize(db, encrypt) {
     CREATE TABLE IF NOT EXISTS risks(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,active INTEGER,started INTEGER,updated INTEGER,reasons TEXT NOT NULL,PRIMARY KEY(panel,uid));
     CREATE TABLE IF NOT EXISTS risk_history(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT,ts INTEGER,action TEXT,reasons TEXT);
     CREATE INDEX IF NOT EXISTS risk_history_panel ON risk_history(panel,id);
+    CREATE INDEX IF NOT EXISTS risk_history_user ON risk_history(panel,uid,id DESC);
+    CREATE INDEX IF NOT EXISTS visit_user_history ON visits(panel,uid,id DESC);
     CREATE TABLE IF NOT EXISTS telegram(account INTEGER PRIMARY KEY REFERENCES accounts(id),token TEXT,bot_id TEXT UNIQUE,bot_name TEXT,chat TEXT,bind_hash TEXT,bind_until INTEGER,offset INTEGER DEFAULT 0,selected INTEGER,error TEXT);
     CREATE TABLE IF NOT EXISTS tg_confirm(code TEXT PRIMARY KEY,account INTEGER,panel INTEGER,uid INTEGER,until INTEGER);
     CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY,account INTEGER REFERENCES accounts(id),panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,payload TEXT,created INTEGER,tries INTEGER DEFAULT 0,next_try INTEGER DEFAULT 0);`);

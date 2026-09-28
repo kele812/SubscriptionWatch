@@ -615,6 +615,26 @@ dialog {
   max-height: 85vh;
   overflow-y: auto;
 }
+#userHistoryDialog {
+  width: min(1020px, 96vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+.user-history-section {
+  margin: 22px 0;
+  padding-top: 12px;
+  border-top: 1px solid #334458;
+}
+.user-history-section h3 {
+  margin: 0 0 10px;
+}
+.user-history-section .table-wrap {
+  max-height: 350px;
+  overflow: auto;
+}
+.user-history-section .table-wrap td {
+  overflow-wrap: anywhere;
+}
 dialog::backdrop {
   background: #030711c9;
 }

@@ -1000,6 +1000,51 @@ export function createApp({
               .filter(Boolean)
               .map((ip) => ({ ip, ...geo.lookup(ip) })),
           }));
+        if (action === "user-history" && method === "GET") {
+          const uid = Number(u.searchParams.get("uid"));
+          const kind = u.searchParams.get("kind");
+          const beforeRaw = u.searchParams.get("before");
+          const before =
+            beforeRaw === null ? Number.MAX_SAFE_INTEGER : Number(beforeRaw);
+          if (
+            !Number.isSafeInteger(uid) ||
+            uid < 1 ||
+            !["visits", "risks", "actions"].includes(kind) ||
+            !Number.isSafeInteger(before) ||
+            before < 1
+          )
+            fail(400, "历史记录查询参数错误");
+          if (
+            !db
+              .prepare("SELECT 1 FROM subjects WHERE panel=? AND uid=?")
+              .get(id, uid)
+          )
+            fail(404, "当前面板没有此用户");
+          const queries = {
+            visits:
+              "SELECT * FROM visits WHERE panel=? AND uid=? AND id<? ORDER BY id DESC LIMIT 21",
+            risks:
+              "SELECT * FROM risk_history WHERE panel=? AND uid=? AND id<? ORDER BY id DESC LIMIT 21",
+            actions:
+              "SELECT id,uid,kind,origin,status,message,created,updated,email FROM ban_actions WHERE panel=? AND uid=? AND id<? ORDER BY id DESC LIMIT 21",
+          };
+          const found = db.prepare(queries[kind]).all(id, uid, before);
+          const hasMore = found.length > 20;
+          const rows = found
+            .slice(0, 20)
+            .map((r) =>
+              kind === "visits"
+                ? { ...r, geo: geo.lookup(r.ip) }
+                : kind === "risks"
+                  ? { ...r, reasons: enrich(JSON.parse(r.reasons)) }
+                  : r,
+            );
+          return json(res, 200, {
+            rows,
+            hasMore,
+            next: hasMore ? rows.at(-1).id : null,
+          });
+        }
         if (action === "risks" && method === "GET")
           return json(res, 200, {
             rows: riskRows(db, id, {
@@ -1181,7 +1226,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.8.8 ready");
+  console.log("Subscription Watch v3.8.9 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }
