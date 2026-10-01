@@ -731,7 +731,8 @@ function fillRules() {
   updateRuleConditions(false);
 }
 async function enter() {
-  me = await api("/api/me");
+  const [account] = await Promise.all([api("/api/me"), loadPanels()]);
+  me = account;
   sourceIpQuery = "";
   tab = "history";
   page = 1;
@@ -743,7 +744,6 @@ async function enter() {
 
   $("#app").hidden = false;
   $("#identity").textContent = me.username;
-  await loadPanels();
   await refresh();
 }
 $("#logout").onclick = run(async () => {
@@ -813,6 +813,12 @@ async function refresh() {
     return data;
   };
   try {
+    const statusPromise = panelId
+      ? read(endpoint("status")).then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        )
+      : null;
     for (const v of document.querySelectorAll("[data-view]"))
       v.hidden =
         v.id !== tab ||
@@ -830,16 +836,6 @@ async function refresh() {
       tab,
     );
     $("#pagination").hidden = !pageable || !panelId;
-    if (panelId) {
-      const s = await read(endpoint("status"));
-      $("#metricEvents").textContent = s.events;
-      $("#metricToday").textContent = s.today;
-      $("#metricRisks").textContent = s.risks;
-      $("#metricDisk").textContent =
-        (s.freeBytes / 1024 ** 3).toFixed(1) + " GB";
-      $("#heartbeat").textContent =
-        `采集状态：${s.panel.health} · 最近上报：${format(s.panel.last_seen)} · 待发送 ${s.panel.pending} · 丢弃 ${s.panel.dropped} · 过期 ${s.panel.expired} · 上报失败 ${s.panel.failures ?? "旧插件未提供"} · 插件 ${s.panel.version || "未连接"}（计数为最近一次上报快照，离线期间未知；Redis计数可能过期归零）`;
-    }
     let rows = [];
     if (tab === "sourceIp") {
       if (sourceIpQuery) {
@@ -957,7 +953,12 @@ async function refresh() {
       $("#blacklistNext").disabled = blacklistPage * 100 >= data.total;
     }
     if (panelId && tab === "destinations") {
-      const state = await read(endpoint("destinations/settings"));
+      const q = new URLSearchParams(new FormData($("#destinationFilters")));
+      if (destinationBefore) q.set("before", destinationBefore);
+      const [state, d] = await Promise.all([
+        read(endpoint("destinations/settings")),
+        read(endpoint("destinations") + "?" + q),
+      ]);
       table(
         "#destinationUsers",
         ["用户ID", "邮箱", "开始时间", "操作"],
@@ -1010,9 +1011,6 @@ async function refresh() {
           ),
         ]),
       );
-      const q = new URLSearchParams(new FormData($("#destinationFilters")));
-      if (destinationBefore) q.set("before", destinationBefore);
-      const d = await read(endpoint("destinations") + "?" + q);
       destinationNext = d.next;
       $("#destinationNext").disabled = !d.next;
       table(
@@ -1095,14 +1093,15 @@ async function refresh() {
       $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;
     }
     if (panelId && tab === "risk") {
-      const collection = await read(endpoint("destinations/settings"));
-      const collectingUsers = new Map(collection.users.map((u) => [u.uid, u]));
-      rows = (
-        await read(
+      const [collection, risks] = await Promise.all([
+        read(endpoint("destinations/settings")),
+        read(
           endpoint("risks") +
             `?page=${page}&all=${$("#showResolved").checked ? 1 : 0}`,
-        )
-      ).rows;
+        ),
+      ]);
+      const collectingUsers = new Map(collection.users.map((u) => [u.uid, u]));
+      rows = risks.rows;
       const id = panelId;
       batchRows(
         "risk",
@@ -1271,6 +1270,18 @@ async function refresh() {
       );
     }
     if (tab === "site") await geoStatus();
+    if (statusPromise) {
+      const result = await statusPromise;
+      if (result.error) throw result.error;
+      const s = result.value;
+      $("#metricEvents").textContent = s.events;
+      $("#metricToday").textContent = s.today;
+      $("#metricRisks").textContent = s.risks;
+      $("#metricDisk").textContent =
+        (s.freeBytes / 1024 ** 3).toFixed(1) + " GB";
+      $("#heartbeat").textContent =
+        `采集状态：${s.panel.health} · 最近上报：${format(s.panel.last_seen)} · 待发送 ${s.panel.pending} · 丢弃 ${s.panel.dropped} · 过期 ${s.panel.expired} · 上报失败 ${s.panel.failures ?? "旧插件未提供"} · 插件 ${s.panel.version || "未连接"}（计数为最近一次上报快照，离线期间未知；Redis计数可能过期归零）`;
+    }
   } catch (e) {
     if (e.message !== "STALE_VIEW") throw e;
   } finally {

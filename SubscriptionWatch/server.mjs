@@ -287,6 +287,13 @@ export function createApp({
       const u = new URL(req.url, "http://localhost"),
         route = u.pathname,
         method = req.method;
+      const started = performance.now();
+      res.once("finish", () => {
+        const elapsed = Math.round(performance.now() - started);
+        if (elapsed < 1000) return;
+        const action = /^\/api\/panels\/\d+\/([a-z-]+)/.exec(route)?.[1];
+        console.warn(`slow request ${action || (route.startsWith("/api/") ? "api" : "page")}: ${elapsed}ms`);
+      });
       res.setHeader("Cache-Control", "private, no-store, max-age=0");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Vary", "Cookie");
@@ -1226,7 +1233,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.9.4 ready");
+  console.log("Subscription Watch v3.9.5 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }
