@@ -186,6 +186,8 @@ function riskDetail(r) {
         IP: e.ip,
         归属地: geoText(e.geo || {}),
         原始UA: e.ua,
+        通过反代IP: e.proxyIp,
+        通过反代名称: e.proxyName,
         自有节点: e.owned ? "是" : "否",
         计入: e.included,
         排除原因: e.exclusion,
@@ -310,6 +312,8 @@ function sourceTraceDetail(r) {
     邮箱: r.email,
     来源IP: r.ip,
     直接连接IP: r.peer_ip,
+    通过反代IP: r.proxy_ip,
+    通过反代名称: r.proxy_name,
     IP取值依据: r.ip_source,
     原始UA: r.ua,
     状态: requestStatusText(r.status),
@@ -556,6 +560,11 @@ function detail(data) {
     toggle.textContent = "连接详情";
     extra.append(toggle);
     line(extra, `直接连接 IP：${data.直接连接IP || "未知"}`);
+    if (data.通过反代IP || data.通过反代名称)
+      line(
+        extra,
+        `通过反代：${data.通过反代名称 || "未命名"} · ${data.通过反代IP || "未知IP"}`,
+      );
     line(
       extra,
       `来源 IP 取值：${data.IP取值依据 === "trusted_proxy" ? "可信代理转发" : data.IP取值依据 === "peer" ? "直接连接" : "旧版未知"}`,
@@ -1055,6 +1064,8 @@ async function refresh() {
               原始UA: r.ua,
 
               直接连接IP: r.peer_ip,
+              通过反代IP: r.proxy_ip,
+              通过反代名称: r.proxy_name,
               IP取值依据: r.ip_source,
               状态: requestStatusText(r.status),
               耗时毫秒: r.ms,

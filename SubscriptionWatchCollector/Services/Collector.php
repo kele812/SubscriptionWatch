@@ -40,7 +40,12 @@ class Collector
         $user = $request->user();
         if (!$user || !$user->id) return;
         $source = self::sourceIp((string) $request->server('REMOTE_ADDR', ''), (string) $request->header('X-Forwarded-For', ''), (string) ($this->options['trusted_proxies'] ?? ''));
+        $proxyIp = trim((string) $request->header('X-Watch-Proxy-IP', ''));
+        $proxyName = mb_strcut(trim((string) $request->header('X-Watch-Proxy-Name', '')), 0, 128, 'UTF-8');
+        if (!filter_var($proxyIp, FILTER_VALIDATE_IP)) $proxyIp = null;
+        if ($proxyName === '') $proxyName = null;
         $event = array_merge($source, [
+            'proxy_ip' => $proxyIp, 'proxy_name' => $proxyName,
             'event_id' => bin2hex(random_bytes(16)), 'ts' => (int) round(microtime(true) * 1000),
             'user_id' => (int) $user->id, 'email' => mb_strcut((string) $user->email, 0, 254, 'UTF-8'),
             'ua' => mb_strcut((string) $request->header('User-Agent', ''), 0, 1024, 'UTF-8'),
@@ -87,7 +92,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '3.8.7', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '3.8.8', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Http::connectTimeout(1)->timeout(3)->withoutRedirecting()

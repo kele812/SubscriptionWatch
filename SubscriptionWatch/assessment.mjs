@@ -44,7 +44,7 @@ export function assess(
     e.delivered !== false;
   const observed = db
     .prepare(
-      "SELECT ts,ip,ua,status,delivered FROM samples WHERE panel=? AND uid=? AND ts>? AND ts<=? ORDER BY ts DESC,id DESC",
+      "SELECT ts,ip,ua,proxy_ip,proxy_name,status,delivered FROM samples WHERE panel=? AND uid=? AND ts>? AND ts<=? ORDER BY ts DESC,id DESC",
     )
     .all(
       panel.id,
@@ -128,6 +128,8 @@ export function assess(
         ua: e.ua,
         status: e.status,
         geo: e.geo,
+        proxyIp: e.proxy_ip,
+        proxyName: e.proxy_name,
         included: selected.has(e),
         exclusion: selected.has(e) ? "" : exempt(e) || why(e),
         ...(code === "blacklist" && selected.has(e)
