@@ -331,8 +331,8 @@ $("#userHistoryDialog").addEventListener("close", () => {
   userHistoryState = null;
 });
 function evidenceHint(code) {
-  if (code === "review-denials")
-    return "同一用户在最近60分钟内被订阅预审拒绝3次；只拒绝对应请求，没有封禁整个Xboard账号。";
+  if (code === "cloudShort" || code === "cloudLong")
+    return "同一用户在设置的时间内多次从云服务器IP请求订阅；按实际请求次数累计，同一IP重复请求也计数。";
   if (code === "ua")
     return "核查提示：UA 可修改。这条记录只说明请求使用了未列入允许名单的 UA，不能据此认定账号本人操作。";
   if (code === "cloud")
@@ -1596,10 +1596,6 @@ function readRuleForm() {
     "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
-    "reviewBlockUa",
-    "reviewBlockChina",
-    "reviewBlockCloud",
-    "reviewBlockForeign",
     "reviewBlockBlacklist",
   ])
     rules[k] = f.elements[k].checked;
@@ -1608,12 +1604,14 @@ function readRuleForm() {
       .split(/\r?\n/)
       .map((x) => x.trim())
       .filter(Boolean);
-  for (const prefix of ["cn", "foreign"])
+  for (const prefix of ["cn", "foreign", "cloud"])
     for (const w of ["Short", "Long"])
       for (const end of ["Minutes", "Limit"]) {
         const k = prefix + w + end;
         rules[k] = Number(f.elements[k].value);
       }
+  rules.dailyLimit = Number(f.elements.dailyLimit.value);
+  rules.reviewRedirectUrl = f.elements.reviewRedirectUrl.value.trim();
   return { ...rules, retentionDays: panel().rules.retentionDays };
 }
 $("#rulesForm").onsubmit = run(async () => {
@@ -1788,15 +1786,15 @@ function updateRuleConditions(dirty = true) {
     v = (n) => f.elements[n].value,
     on = (n) => f.elements[n].checked;
   const items = [
-    ["uaEnabled", "新请求的UA为空或不匹配允许关键词，标记为可疑用户"],
+    ["uaEnabled", "新请求的UA为空或不匹配允许关键词，立即标记可疑并跳转"],
     [
       "chinaEnabled",
-      `${v("cnShortMinutes")}分钟超过${v("cnShortLimit")}个或${v("cnLongMinutes")}分钟超过${v("cnLongLimit")}个不同中国大陆IP成功拉取，标记为可疑用户`,
+      `${v("cnShortMinutes")}分钟出现第${Number(v("cnShortLimit")) + 1}个或${v("cnLongMinutes")}分钟出现第${Number(v("cnLongLimit")) + 1}个不同中国大陆IP，当次标记并跳转`,
     ],
-    ["dcEnabled", "云厂商组织名匹配关键词且成功拉取一次，标记为可疑用户"],
+    ["dcEnabled", `云服务器IP每次请求都跳转；${v("cloudShortMinutes")}分钟达到${v("cloudShortLimit")}次或${v("cloudLongMinutes")}分钟达到${v("cloudLongLimit")}次时标记可疑`],
     [
       "foreignEnabled",
-      `${v("foreignShortMinutes")}分钟超过${v("foreignShortLimit")}个或${v("foreignLongMinutes")}分钟超过${v("foreignLongLimit")}个不同非中国大陆IP成功拉取，标记为可疑用户`,
+      `${v("foreignShortMinutes")}分钟出现第${Number(v("foreignShortLimit")) + 1}个或${v("foreignLongMinutes")}分钟出现第${Number(v("foreignLongLimit")) + 1}个不同非中国大陆IP，当次标记并跳转`,
     ],
   ];
   for (const [key, text] of items) {
@@ -1872,3 +1870,4 @@ $("#exportBlacklist").onclick = run(async () => {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
   toast("黑名单已导出，每行一个 IP");
 });
+

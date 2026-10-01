@@ -79,7 +79,7 @@ class Collector
         return filter_var($this->options['review_fail_open'] ?? true, FILTER_VALIDATE_BOOLEAN);
     }
 
-    public function review($request): bool
+    public function review($request): array
     {
         $capture = $request->attributes->get(self::MARKER);
         if (!$this->ready() || !$capture) throw new \RuntimeException('review unavailable');
@@ -115,7 +115,16 @@ class Collector
         if (!is_array($answer) || ($answer['event_id'] ?? null) !== $event['event_id']
             || !is_bool($answer['allow'] ?? null))
             throw new \UnexpectedValueException('review response invalid');
-        return $answer['allow'];
+        if (!$answer['allow']) {
+            $target = (string) ($answer['redirect'] ?? '');
+            $parts = parse_url($target);
+            if (!is_array($parts) || !in_array($parts['scheme'] ?? '', ['http', 'https'], true)
+                || empty($parts['host']) || isset($parts['user']) || isset($parts['pass'])
+                || preg_match('/[\r\n]/', $target))
+                throw new \UnexpectedValueException('review redirect invalid');
+            return ['allow' => false, 'redirect' => $target];
+        }
+        return ['allow' => true, 'redirect' => null];
     }
 
     public static function handled($handled): void
@@ -151,7 +160,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '3.9.9', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '3.10.0', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Http::connectTimeout(1)->timeout(3)->withoutRedirecting()
@@ -169,3 +178,4 @@ class Collector
         }
     }
 }
+

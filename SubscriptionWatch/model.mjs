@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 
 export const defaults = {
-  schema: 371,
+  schema: 3100,
   uaEnabled: true,
   chinaEnabled: true,
   foreignEnabled: true,
@@ -15,11 +15,13 @@ export const defaults = {
   foreignLongMinutes: 720,
   foreignLongLimit: 10,
   dcEnabled: true,
-  reviewBlockUa: false,
-  reviewBlockChina: false,
-  reviewBlockCloud: false,
-  reviewBlockForeign: false,
   reviewBlockBlacklist: false,
+  cloudShortMinutes: 60,
+  cloudShortLimit: 3,
+  cloudLongMinutes: 720,
+  cloudLongLimit: 10,
+  dailyLimit: 30,
+  reviewRedirectUrl: "https://www.baidu.com/",
   uaKeywords: [
     "shadowrocket",
     "NetFlow",
@@ -337,10 +339,6 @@ export function validateRules(b) {
     "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
-    "reviewBlockUa",
-    "reviewBlockChina",
-    "reviewBlockCloud",
-    "reviewBlockForeign",
     "reviewBlockBlacklist",
   ]) {
     if (typeof b[k] !== "boolean") throw Error("规则开关格式错误");
@@ -390,5 +388,25 @@ export function validateRules(b) {
   r.dcKeywords = [...new Set(b.dcKeywords.map((k) => k.trim().toLowerCase()))];
   if (r.dcEnabled && !r.dcKeywords.length)
     throw Error("启用数据中心规则需要至少一个关键词");
-  return { ...r, schema: 371 };
+  for (const suffix of ["Short", "Long"]) {
+    const minutes = b[`cloud${suffix}Minutes`], limit = b[`cloud${suffix}Limit`];
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080 ||
+        !Number.isInteger(limit) || limit < 1 || limit > 1000)
+      throw Error("云服务器请求次数与时间范围无效");
+    r[`cloud${suffix}Minutes`] = minutes;
+    r[`cloud${suffix}Limit`] = limit;
+  }
+  if (!Number.isInteger(b.dailyLimit) || b.dailyLimit < 1 || b.dailyLimit > 10000)
+    throw Error("24小时请求上限须为1～10000次");
+  r.dailyLimit = b.dailyLimit;
+  if (typeof b.reviewRedirectUrl !== "string" || b.reviewRedirectUrl.length > 2048)
+    throw Error("请输入有效的跳转网址");
+  let redirect;
+  try { redirect = new URL(b.reviewRedirectUrl); } catch { throw Error("请输入完整的跳转网址，例如 https://www.baidu.com/"); }
+  if (!["https:", "http:"].includes(redirect.protocol) || !redirect.hostname ||
+      redirect.username || redirect.password || redirect.hash || /[\r\n]/.test(b.reviewRedirectUrl))
+    throw Error("跳转网址只能使用 HTTP 或 HTTPS，不能包含账号、密码或片段");
+  r.reviewRedirectUrl = redirect.href;
+  return { ...r, schema: 3100 };
 }
+

@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.9.9" />
+    <link rel="stylesheet" href="/style.css?v=3.10.0" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.9.9 · 独立采集 · 风险评估</small>
+        <small>v3.10.0 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
@@ -352,15 +352,14 @@
         </section>
         <section id="riskRules" data-view hidden>
           <form id="rulesForm" class="settings-form">
-            <h2>可疑用户判断规则</h2>
+            <h2>订阅审核与可疑用户规则</h2>
             <p>
-              共5类观察规则。已成功下发的访问按原有规则标记可疑，不自动解除；选择“拒绝本次订阅”后，同类条件会在下发前审核。用户白名单和访问来源豁免优先。地域归属依赖IP数据库，未知归属不当作境外。
+              新请求先由风控机审核。命中拦截时只跳转本次订阅；被标记为可疑的用户持续拦截，直到手动取消。取消后有新异常仍会重新标记。IP归属地判断依赖已安装的数据库。
             </p>
-            <p>下方“拒绝本次订阅”只影响启用后的新请求，默认全部关闭。风控机审核通过后 Xboard 才下发；同一用户 60 分钟内被规则拒绝 3 次时标记可疑。失联时如何处理请在 Xboard 采集插件中设置。</p>
+            <p>失联时是否继续下发在 Xboard 采集插件中设置。用户白名单不触发风险标记；每日次数上限仍对每个用户生效。</p>
             <fieldset class="rule-card">
               <legend>01 · 非指定客户端获取订阅</legend>
               <label><input type="checkbox" name="uaEnabled" />启用UA检查</label
-              ><label><input type="checkbox" name="reviewBlockUa" />命中时拒绝本次订阅</label
               ><label
                 >允许的UA关键词（每行一个）<textarea
                   name="uaKeywords"
@@ -368,7 +367,7 @@
                 ></textarea>
               </label>
               <p>
-                每次新请求检查完整UA，包含任意允许关键词即通过，忽略大小写；不匹配或为空即标记，不设置评估时间。UA可以伪造，匹配不代表身份可信。
+                新请求的完整 UA 不包含任何允许关键词时，立即标记可疑并跳转。UA 可以伪造，匹配不代表身份可信。
               </p>
               <button type="button" id="addCommonUa">补充常见UA关键词</button>
             </fieldset>
@@ -380,9 +379,8 @@
                   name="chinaEnabled"
                 />启用中国大陆IP检查</label
               >
-              <label><input type="checkbox" name="reviewBlockChina" />命中时拒绝本次订阅</label>
               <p>
-                默认同一用户最近60分钟超过3个不同中国大陆IP（第4个），或720分钟超过10个（第11个）即标记。重复IP只计一个，不区分UA。
+                默认同一用户最近60分钟出现第4个不同中国大陆IP，或720分钟出现第11个，就在触发的这次标记并跳转。重复IP只计一个，不区分UA。
               </p>
               <div class="form-grid">
                 <label
@@ -426,7 +424,6 @@
                   type="checkbox"
                   name="dcEnabled"
                 />启用云服务器IP检查</label
-              ><label><input type="checkbox" name="reviewBlockCloud" />命中时拒绝本次订阅</label
               ><label
                 >云厂商组织名关键词（每行一个）<textarea
                   name="dcKeywords"
@@ -434,8 +431,16 @@
                 ></textarea>
               </label>
               <p>
-                组织名包含任一关键词且成功拉取一次即标记；忽略大小写，不使用正则表达式。不设置时间窗口。
+                匹配关键词的云服务器IP每次请求都跳转。同一用户60分钟内第3次，或720分钟内第10次云服务器请求时标记可疑；同一个IP重复请求也计数。关键词忽略大小写。
               </p>
+              <div class="form-grid">
+                <label>较短时间范围（分钟）<input type="number" min="1" max="10080" required name="cloudShortMinutes" /></label>
+                <label>达到几次请求<input type="number" min="1" max="1000" required name="cloudShortLimit" /></label>
+              </div>
+              <div class="form-grid">
+                <label>较长时间范围（分钟）<input type="number" min="1" max="10080" required name="cloudLongMinutes" /></label>
+                <label>达到几次请求<input type="number" min="1" max="1000" required name="cloudLongLimit" /></label>
+              </div>
             </fieldset>
             <fieldset class="rule-card">
               <legend>04 · 多个非中国大陆 IP 获取订阅</legend>
@@ -445,9 +450,8 @@
                   name="foreignEnabled"
                 />启用非中国大陆IP检查</label
               >
-              <label><input type="checkbox" name="reviewBlockForeign" />命中时拒绝本次订阅</label>
               <p>
-                默认同一用户最近60分钟超过3个不同非中国大陆IP（第4个），或720分钟超过10个（第11个）即标记。港澳台计入，归属未知排除。同一IP不区分UA只计一个。
+                默认同一用户最近60分钟出现第4个不同非中国大陆IP，或720分钟出现第11个，就在触发的这次标记并跳转。港澳台计入，归属未知排除。同一IP只计一个。
               </p>
               <div class="form-grid">
                 <label
@@ -486,13 +490,22 @@
             </fieldset>
             <fieldset class="rule-card">
               <legend>05 · 黑名单 IP 获取订阅</legend>
-              <label><input type="checkbox" name="reviewBlockBlacklist" />命中时拒绝本次订阅</label>
+              <label><input type="checkbox" name="reviewBlockBlacklist" />命中时标记可疑并跳转</label>
               <p>
-                触发条件：新请求通过有效黑名单 IP
-                成功获取一次订阅，即标记为可疑用户。所有面板共同收集和使用，在“IP
-                黑名单”页面统一设置开关、保留天数及移除
-                IP。名单只来自参与触发中国大陆多 IP 规则的有效 IP。
+                开启后，所有面板共用的黑名单IP一旦请求订阅，就标记可疑并跳转。名单的自动收集和保留天数仍在“IP黑名单”页面设置。
               </p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>06 · 每日订阅请求上限</legend>
+              <label>同一用户最近滚动24小时最多请求次数
+                <input name="dailyLimit" type="number" min="1" max="10000" required />
+              </label>
+              <p>默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。</p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>拦截后跳转</legend>
+              <label>跳转网址<input name="reviewRedirectUrl" type="url" maxlength="2048" required placeholder="https://www.baidu.com/" /></label>
+              <p>所有正常审核拦截统一返回302跳转，默认百度。修改后只影响新请求；风控机失联且插件选择拒绝时仍返回403。</p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>不检查的访问来源</legend>
@@ -508,7 +521,7 @@
                 />不检查来自Cloudflare的订阅请求</label
               >
               <p class="evidence-exempt">
-                匹配IP白名单或已开启的Cloudflare组织名豁免后，请求仍记录，但不参与任何规则判断。
+                匹配IP白名单或已开启的Cloudflare组织名豁免后，不触发UA、地域、云服务器和黑名单规则；请求仍记录，并计入每日请求上限。
               </p>
             </fieldset>
             <p id="rulesDirty" role="status">规则已保存</p>
@@ -698,6 +711,7 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.9.9"></script>
+    <script src="/app.js?v=3.10.0"></script>
   </body>
 </html>
+

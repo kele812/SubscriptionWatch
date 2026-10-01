@@ -162,13 +162,6 @@ export function assess(
       (e) => success(e) && badUa(e),
       (e) => (!success(e) ? "未确认返回订阅内容" : "UA 符合允许关键词"),
     ],
-    [
-      r.dcEnabled,
-      "cloud",
-      "云服务器 IP 获取订阅",
-      (e) => success(e) && cloud(e),
-      (e) => (!success(e) ? "请求未成功" : "未匹配云厂商关键词"),
-    ],
   ]) {
     if (!enabled) continue;
     const rows = incoming.filter((e) => !exempt(e) && predicate(e));
@@ -244,3 +237,4 @@ export function assess(
   }
   return reasons;
 }
+

@@ -21,15 +21,21 @@ class Plugin extends AbstractPlugin
             $collector = new Collector($this->getConfig());
             try {
                 $collector->mark(request());
-                $allowed = $collector->review(request());
+                $decision = $collector->review(request());
             } catch (\UnexpectedValueException $e) {
-                $allowed = false;
+                $decision = ['allow' => false, 'redirect' => null];
             } catch (\Throwable $e) {
-                // Only connectivity or invalid responses use the configured fail mode.
-                $allowed = $collector->failOpen();
+                // Only connectivity and server failures use the configured fail mode.
+                $decision = ['allow' => $collector->failOpen(), 'redirect' => null];
             }
-            if (!$allowed)
+            if (!$decision['allow']) {
+                if ($decision['redirect'])
+                    $this->intercept(response('', 302, [
+                        'Location' => $decision['redirect'],
+                        'Cache-Control' => 'no-store',
+                    ]));
                 $this->intercept(response('', 403, ['Content-Type' => 'text/plain']));
+            }
         });
         $dispatcher = app('events');
         self::$dispatchers ??= new \WeakMap();
@@ -49,3 +55,4 @@ class Plugin extends AbstractPlugin
         })->everyMinute()->name('subscription-watch-collector');
     }
 }
+
