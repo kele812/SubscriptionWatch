@@ -1,10 +1,10 @@
-# SubscriptionWatch v3.9.5
+# SubscriptionWatch v3.9.6
 
 ## 上传插件
 
-后台和采集插件统一为 **v3.9.5**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v3.9.5.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.9.5.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
+后台和采集插件统一为 **v3.9.6**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v3.9.6.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.9.6.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
 
-本版减少登录和切换页面时的串行请求等待。若后台仍慢，容器日志会记录超过 1 秒的接口类别与处理耗时，便于区分服务端查询和外部网络延迟。
+本版在切换页面时取消上一页尚未完成的请求，避免慢连接让新页面排队。若后台仍慢，容器日志会记录超过 1 秒的接口类别与处理耗时，便于区分服务端查询和外部网络延迟。
 
 先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；Xboard 原有的每分钟计划任务需正常运行。
 

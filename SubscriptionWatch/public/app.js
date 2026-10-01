@@ -18,8 +18,7 @@ let me,
   page = 1,
   pendingAction,
   toastTimer,
-  refreshBusy = false,
-  refreshPending = false;
+  refreshController = null;
 let userHistoryState = null;
 function requestStatusText(value) {
   const code = Number(value);
@@ -90,11 +89,12 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => ($("#toast").hidden = true), 6500);
 }
-async function api(url, data) {
+async function api(url, data, signal) {
   const r = await fetch(url, {
     method: data === undefined ? "GET" : "POST",
     headers: { "Content-Type": "application/json", "X-Watch-Request": "1" },
     body: data === undefined ? undefined : JSON.stringify(data),
+    signal,
   });
   const text = await r.text();
   let b;
@@ -801,15 +801,14 @@ function query() {
   return q;
 }
 async function refresh() {
-  if (refreshBusy) {
-    refreshPending = true;
-    return;
-  }
-  refreshBusy = true;
+  refreshController?.abort();
+  const controller = new AbortController();
+  refreshController = controller;
   const context = [panelId, tab, page].join(":");
   const read = async (url, body) => {
-    const data = await api(url, body);
-    if (context !== [panelId, tab, page].join(":")) throw Error("STALE_VIEW");
+    const data = await api(url, body, controller.signal);
+    if (controller.signal.aborted || context !== [panelId, tab, page].join(":"))
+      throw Error("STALE_VIEW");
     return data;
   };
   try {
@@ -1269,9 +1268,10 @@ async function refresh() {
         ]),
       );
     }
-    if (tab === "site") await geoStatus();
+    if (tab === "site") await geoStatus(controller.signal);
     if (statusPromise) {
       const result = await statusPromise;
+      if (controller.signal.aborted) return;
       if (result.error) throw result.error;
       const s = result.value;
       $("#metricEvents").textContent = s.events;
@@ -1283,21 +1283,17 @@ async function refresh() {
         `采集状态：${s.panel.health} · 最近上报：${format(s.panel.last_seen)} · 待发送 ${s.panel.pending} · 丢弃 ${s.panel.dropped} · 过期 ${s.panel.expired} · 上报失败 ${s.panel.failures ?? "旧插件未提供"} · 插件 ${s.panel.version || "未连接"}（计数为最近一次上报快照，离线期间未知；Redis计数可能过期归零）`;
     }
   } catch (e) {
-    if (e.message !== "STALE_VIEW") throw e;
+    if (e.name !== "AbortError" && e.message !== "STALE_VIEW") throw e;
   } finally {
-    refreshBusy = false;
-    if (refreshPending) {
-      refreshPending = false;
-      queueMicrotask(() => refresh().catch((e) => toast(e.message)));
-    }
+    if (refreshController === controller) refreshController = null;
   }
 }
 async function refreshAfter() {
-  refreshBusy = false;
   await refresh();
 }
-async function geoStatus() {
-  const g = await api("/api/admin/geo");
+async function geoStatus(signal) {
+  const g = await api("/api/admin/geo", undefined, signal);
+  if (signal?.aborted) return;
   const lines = [
     `下载凭据：${g.configured ? "已设置" : "未设置"}`,
     `状态：${g.phase}（${g.progress}%）`,
