@@ -2,9 +2,16 @@
 
 ## 上传插件
 
-下载 [采集插件 v3.8.7](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.8.7.zip)，在 Xboard 的插件管理中上传 ZIP 并启用。
+下载 [采集插件 v3.8.8](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.8.8.zip)，在 Xboard 的插件管理中上传 ZIP 并启用。先更新风控后台，再更新插件。
 
 先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；Xboard 原有的每分钟计划任务需正常运行。
+
+要区分客户来源 IP 与经过的反代，在每台反代的 Nginx `location /` 内覆盖这两个请求头，并填写该反代自己的公网 IP 和名称：
+
+```nginx
+proxy_set_header X-Watch-Proxy-IP "反代公网IP";
+proxy_set_header X-Watch-Proxy-Name "自定义反代名称";
+```
 
 ## 一键部署
 
