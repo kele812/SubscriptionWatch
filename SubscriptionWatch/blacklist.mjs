@@ -24,6 +24,10 @@ export function activeBlacklistedIP(db, ip, now) {
 export function collectBlacklistedIPs(db, panel, uid, rows, now) {
   const settings = blacklistSettings(db);
   if (!settings.recording) return 0;
+  const sourceEmail =
+    db
+      .prepare("SELECT email FROM subjects WHERE panel=? AND uid=?")
+      .get(panel.id, uid)?.email || "";
   const latest = new Map();
   for (const e of rows) {
     if (
@@ -37,9 +41,9 @@ export function collectBlacklistedIPs(db, panel, uid, rows, now) {
     if (!latest.has(e.ip) || latest.get(e.ip).ts < e.ts) latest.set(e.ip, e);
   }
   const insert =
-    db.prepare(`INSERT INTO ip_blacklist(ip,source_panel,source_name,source_uid,source_ts,added,expires,removed_at)
-    VALUES(?,?,?,?,?,?,?,0) ON CONFLICT(ip) DO UPDATE SET
-    source_panel=excluded.source_panel,source_name=excluded.source_name,source_uid=excluded.source_uid,source_ts=excluded.source_ts,
+    db.prepare(`INSERT INTO ip_blacklist(ip,source_panel,source_name,source_uid,source_email,source_ts,added,expires,removed_at)
+    VALUES(?,?,?,?,?,?,?,?,0) ON CONFLICT(ip) DO UPDATE SET
+    source_panel=excluded.source_panel,source_name=excluded.source_name,source_uid=excluded.source_uid,source_email=excluded.source_email,source_ts=excluded.source_ts,
     added=CASE WHEN ip_blacklist.removed_at>0 OR ip_blacklist.expires<=? THEN excluded.added ELSE ip_blacklist.added END,
     expires=excluded.expires,removed_at=0,
     reviewed_at=CASE WHEN ip_blacklist.removed_at>0 OR ip_blacklist.expires<=? THEN 0 ELSE ip_blacklist.reviewed_at END,
@@ -52,6 +56,7 @@ export function collectBlacklistedIPs(db, panel, uid, rows, now) {
       panel.id,
       panel.name,
       uid,
+      sourceEmail,
       e.ts,
       now,
       settings.days === 999 ? PERMANENT : e.ts + settings.days * DAY,

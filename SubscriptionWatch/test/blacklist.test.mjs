@@ -78,6 +78,54 @@ const row = (ip, ts = now - 1000, status = 200) => ({
 });
 const source = () => [1, 2, 3, 4].map((n) => row(`1.0.0.${n}`));
 
+test("黑名单记录触发时邮箱，用户后来改邮箱不改写原来源", () =>
+  fixture(({ db, add }) => {
+    add(1, 1, source());
+    const sourceEmail = () =>
+      blacklistRows(db, new URLSearchParams(), now).rows.find(
+        (r) => r.ip === "1.0.0.1",
+      ).source_email;
+    assert.equal(sourceEmail(), "1@example.com");
+    db.prepare("UPDATE subjects SET email=? WHERE panel=1 AND uid=1").run(
+      "new@example.com",
+    );
+    assert.equal(sourceEmail(), "1@example.com");
+  }));
+
+test("旧黑名单升级时优先使用来源访问的邮箱", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`CREATE TABLE ip_blacklist(ip TEXT PRIMARY KEY,source_panel INTEGER,
+      source_name TEXT NOT NULL,source_uid INTEGER NOT NULL,source_ts INTEGER NOT NULL,
+      added INTEGER NOT NULL,expires INTEGER NOT NULL,removed_at INTEGER NOT NULL DEFAULT 0)`);
+    initialize(db, (s) => s);
+    db.prepare(
+      "INSERT INTO accounts(id,username,password_hash,admin,created) VALUES(1,'owner','hash',1,?)",
+    ).run(now);
+    db.prepare(
+      "INSERT INTO panels(id,owner,name,public_id,secret,rules) VALUES(1,1,'Panel 1','public1','secret',?)",
+    ).run(JSON.stringify(defaults));
+    db.prepare(
+      "INSERT INTO subjects(panel,uid,email) VALUES(1,1,'current@example.com')",
+    ).run();
+    db.prepare(
+      "INSERT INTO visits(panel,ts,uid,email,ip) VALUES(1,?,1,'original@example.com','1.0.0.1')",
+    ).run(now - 1000);
+    db.prepare(
+      "INSERT INTO ip_blacklist(ip,source_panel,source_name,source_uid,source_ts,added,expires) VALUES('1.0.0.1',1,'Panel 1',1,?,?,?)",
+    ).run(now - 1000, now, now + DAY);
+    migrateRequestEvidence(db);
+    assert.equal(
+      db
+        .prepare("SELECT source_email FROM ip_blacklist WHERE ip='1.0.0.1'")
+        .get().source_email,
+      "original@example.com",
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("黑名单人工复核保留来源，移除后由新证据重收集时回到待复核", () =>
   fixture(({ db, panel, add }) => {
     add(1, 1, source());

@@ -136,6 +136,25 @@ function button(label, fn) {
   b.onclick = run(fn);
   return b;
 }
+function blacklistSourceLink(row) {
+  const label = row.source_email || `邮箱未记录（用户 ID ${row.source_uid}）`;
+  if (!panels.some((p) => p.id === row.source_panel)) return label;
+  const link = document.createElement("a");
+  link.href = "#history";
+  link.textContent = label;
+  link.title = "查看该用户近期的订阅访问记录";
+  link.onclick = (event) => {
+    event.preventDefault();
+    panelId = row.source_panel;
+    $("#panelSelect").value = String(panelId);
+    fillRules();
+    for (const input of $("#filters").elements)
+      if (input.name) input.value = "";
+    $("#filters").elements.uid.value = String(row.source_uid);
+    showTab("history");
+  };
+  return link;
+}
 function riskCollectionAction(id, user, collecting) {
   return button(collecting ? "取消采集" : "开启采集", () =>
     ask(
@@ -887,7 +906,7 @@ async function refresh() {
           "选择",
           "IP",
           "来源面板",
-          "触发用户ID",
+          "触发用户邮箱",
           "来源访问",
           "复核状态",
           "有效期",
@@ -902,7 +921,7 @@ async function refresh() {
           ),
           r.ip,
           `${r.source_name}（ID ${r.source_panel}）`,
-          r.source_uid,
+          blacklistSourceLink(r),
           format(r.source_ts),
           r.removed_at
             ? `已移除 · ${format(r.removed_at)}`

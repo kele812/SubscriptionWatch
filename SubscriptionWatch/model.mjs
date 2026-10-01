@@ -131,6 +131,44 @@ export function migrateRequestEvidence(db) {
     db.exec(
       "ALTER TABLE ip_blacklist ADD COLUMN reviewed_by TEXT NOT NULL DEFAULT ''",
     );
+  if (!blacklistColumns.has("source_email"))
+    transaction(db, () => {
+      db.exec(
+        "ALTER TABLE ip_blacklist ADD COLUMN source_email TEXT NOT NULL DEFAULT ''",
+      );
+      if (
+        !["source_panel", "source_uid", "source_ts"].every((c) =>
+          blacklistColumns.has(c),
+        )
+      )
+        return;
+      const visitColumns = new Set(
+        db
+          .prepare("PRAGMA table_info(visits)")
+          .all()
+          .map((c) => c.name),
+      );
+      const subjectColumns = new Set(
+        db
+          .prepare("PRAGMA table_info(subjects)")
+          .all()
+          .map((c) => c.name),
+      );
+      const sources = [];
+      if (
+        ["id", "panel", "uid", "ts", "email"].every((c) => visitColumns.has(c))
+      )
+        sources.push(`(SELECT v.email FROM visits v WHERE v.panel=ip_blacklist.source_panel
+          AND v.uid=ip_blacklist.source_uid AND v.ts=ip_blacklist.source_ts
+          AND v.email IS NOT NULL AND v.email<>'' ORDER BY v.id DESC LIMIT 1)`);
+      if (["panel", "uid", "email"].every((c) => subjectColumns.has(c)))
+        sources.push(`(SELECT s.email FROM subjects s WHERE s.panel=ip_blacklist.source_panel
+          AND s.uid=ip_blacklist.source_uid)`);
+      if (sources.length)
+        db.exec(
+          `UPDATE ip_blacklist SET source_email=COALESCE(${sources.join(",")}, '')`,
+        );
+    });
 }
 export const token = () => randomBytes(24).toString("hex");
 export function migratePanelBots(db) {
@@ -220,7 +258,7 @@ export function initialize(db, encrypt) {
     CREATE TABLE IF NOT EXISTS samples(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,ts INTEGER,ip TEXT,ua TEXT,proxy_ip TEXT,proxy_name TEXT,proxy_verified INTEGER);
     CREATE INDEX IF NOT EXISTS sample_subject ON samples(panel,uid,ts);
     CREATE INDEX IF NOT EXISTS sample_time ON samples(ts);
-    CREATE TABLE IF NOT EXISTS ip_blacklist(ip TEXT PRIMARY KEY,source_panel INTEGER,source_name TEXT NOT NULL,source_uid INTEGER NOT NULL,source_ts INTEGER NOT NULL,added INTEGER NOT NULL,expires INTEGER NOT NULL,removed_at INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS ip_blacklist(ip TEXT PRIMARY KEY,source_panel INTEGER,source_name TEXT NOT NULL,source_uid INTEGER NOT NULL,source_email TEXT NOT NULL DEFAULT '',source_ts INTEGER NOT NULL,added INTEGER NOT NULL,expires INTEGER NOT NULL,removed_at INTEGER NOT NULL DEFAULT 0);
     CREATE INDEX IF NOT EXISTS ip_blacklist_expiry ON ip_blacklist(expires);
     CREATE TABLE IF NOT EXISTS risks(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,active INTEGER,started INTEGER,updated INTEGER,reasons TEXT NOT NULL,PRIMARY KEY(panel,uid));
     CREATE TABLE IF NOT EXISTS risk_history(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT,ts INTEGER,action TEXT,reasons TEXT);
