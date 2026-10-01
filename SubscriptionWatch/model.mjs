@@ -15,6 +15,11 @@ export const defaults = {
   foreignLongMinutes: 720,
   foreignLongLimit: 10,
   dcEnabled: true,
+  reviewBlockUa: false,
+  reviewBlockChina: false,
+  reviewBlockCloud: false,
+  reviewBlockForeign: false,
+  reviewBlockBlacklist: false,
   uaKeywords: [
     "shadowrocket",
     "NetFlow",
@@ -262,6 +267,8 @@ export function initialize(db, encrypt) {
     CREATE INDEX IF NOT EXISTS ip_blacklist_expiry ON ip_blacklist(expires);
     CREATE TABLE IF NOT EXISTS risks(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,active INTEGER,started INTEGER,updated INTEGER,reasons TEXT NOT NULL,PRIMARY KEY(panel,uid));
     CREATE TABLE IF NOT EXISTS risk_history(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT,ts INTEGER,action TEXT,reasons TEXT);
+    CREATE TABLE IF NOT EXISTS review_decisions(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,event_id TEXT NOT NULL,uid INTEGER NOT NULL,email TEXT NOT NULL,ip TEXT NOT NULL,ua TEXT NOT NULL,ts INTEGER NOT NULL,denied INTEGER NOT NULL,enforced INTEGER,delivered INTEGER,codes TEXT NOT NULL,PRIMARY KEY(panel,event_id));
+    CREATE INDEX IF NOT EXISTS review_denials_user ON review_decisions(panel,uid,ts);
     CREATE INDEX IF NOT EXISTS risk_history_panel ON risk_history(panel,id);
     CREATE INDEX IF NOT EXISTS risk_history_user ON risk_history(panel,uid,id DESC);
     CREATE INDEX IF NOT EXISTS visit_user_history ON visits(panel,uid,id DESC);
@@ -330,6 +337,11 @@ export function validateRules(b) {
     "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
+    "reviewBlockUa",
+    "reviewBlockChina",
+    "reviewBlockCloud",
+    "reviewBlockForeign",
+    "reviewBlockBlacklist",
   ]) {
     if (typeof b[k] !== "boolean") throw Error("规则开关格式错误");
     r[k] = b[k];

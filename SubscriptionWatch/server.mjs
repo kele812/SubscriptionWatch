@@ -43,6 +43,7 @@ import {
   validateRules,
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
+import { receiveReview } from "./review.mjs";
 import { evaluate, resolveRisk, riskRows, riskLevel } from "./risk.mjs";
 import {
   blacklistRows,
@@ -236,6 +237,7 @@ export function createApp({
     for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
     transaction(db, () => {
       db.prepare("DELETE FROM receipts WHERE ts<?").run(now - MAX_AGE - 600000);
+      db.prepare("DELETE FROM review_decisions WHERE ts<?").run(now - 604800000);
       db.prepare("DELETE FROM samples WHERE ts<?").run(now - 604800000);
       db.prepare("DELETE FROM tg_confirm WHERE until<?").run(now);
       db.prepare("DELETE FROM outbox WHERE created<?").run(now - 604800000);
@@ -372,6 +374,8 @@ export function createApp({
         return await bans.receive(req, res);
       if (method === "POST" && route === "/api/collector/events")
         return await receiveBatch(req, res, { db, decrypt, geo });
+      if (method === "POST" && route === "/api/collector/review")
+        return await receiveReview(req, res, { db, decrypt, geo });
       if (method !== "GET" && req.headers["x-watch-request"] !== "1")
         fail(403, "请求校验失败");
       if (method === "POST" && ["/api/setup", "/api/login"].includes(route)) {
@@ -1233,7 +1237,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v3.9.8 ready");
+  console.log("Subscription Watch v3.9.9 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

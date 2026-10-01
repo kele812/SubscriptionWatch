@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { transaction } from "./model.mjs";
 import { evaluate } from "./risk.mjs";
+import { markRepeatedDenial } from "./review.mjs";
 export const MAX_AGE = 86400000;
 export async function receiveBatch(req, res, { db, decrypt, geo }) {
   const reply = (status, b) => {
@@ -168,6 +169,14 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           e.status,
           e.delivered === undefined ? null : Number(e.delivered),
         );
+        const reviewed = db.prepare("SELECT denied FROM review_decisions WHERE panel=? AND event_id=?")
+          .get(panel.id, e.event_id);
+        if (reviewed) {
+          const enforced = Number(reviewed.denied === 1 && e.status === 403 && e.delivered !== true);
+          db.prepare("UPDATE review_decisions SET delivered=?,enforced=? WHERE panel=? AND event_id=?")
+            .run(Number(e.delivered === true && e.status >= 200 && e.status < 300), enforced, panel.id, e.event_id);
+          if (enforced) markRepeatedDenial(db, panel, e, now);
+        }
         if (!touched.has(e.user_id)) touched.set(e.user_id, []);
         touched.get(e.user_id).push({
           ts: e.ts,

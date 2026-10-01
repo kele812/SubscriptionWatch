@@ -18,12 +18,18 @@ class Plugin extends AbstractPlugin
     {
         // Store all request-specific state on the Request, never in an Octane singleton.
         $this->listen('client.subscribe.before', function () {
+            $collector = new Collector($this->getConfig());
             try {
-                $collector = new Collector($this->getConfig());
                 $collector->mark(request());
+                $allowed = $collector->review(request());
+            } catch (\UnexpectedValueException $e) {
+                $allowed = false;
             } catch (\Throwable $e) {
-                // Monitoring must never change a subscription response.
+                // Only connectivity or invalid responses use the configured fail mode.
+                $allowed = $collector->failOpen();
             }
+            if (!$allowed)
+                $this->intercept(response('', 403, ['Content-Type' => 'text/plain']));
         });
         $dispatcher = app('events');
         self::$dispatchers ??= new \WeakMap();

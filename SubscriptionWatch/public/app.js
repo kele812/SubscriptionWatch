@@ -331,6 +331,8 @@ $("#userHistoryDialog").addEventListener("close", () => {
   userHistoryState = null;
 });
 function evidenceHint(code) {
+  if (code === "review-denials")
+    return "同一用户在最近60分钟内被订阅预审拒绝3次；只拒绝对应请求，没有封禁整个Xboard账号。";
   if (code === "ua")
     return "核查提示：UA 可修改。这条记录只说明请求使用了未列入允许名单的 UA，不能据此认定账号本人操作。";
   if (code === "cloud")
@@ -862,6 +864,7 @@ async function refresh() {
             "riskHistory",
             "whitelist",
             "panelSettings",
+            "riskRules",
             "telegram",
           ].includes(tab));
     const pageable = ["history", "risk", "riskHistory", "whitelist"].includes(
@@ -1593,6 +1596,11 @@ function readRuleForm() {
     "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
+    "reviewBlockUa",
+    "reviewBlockChina",
+    "reviewBlockCloud",
+    "reviewBlockForeign",
+    "reviewBlockBlacklist",
   ])
     rules[k] = f.elements[k].checked;
   for (const k of ["uaKeywords", "dcKeywords", "ipWhitelist"])

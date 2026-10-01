@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=3.9.8" />
+    <link rel="stylesheet" href="/style.css?v=3.9.9" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v3.9.8 · 独立采集 · 风险评估</small>
+        <small>v3.9.9 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
@@ -23,6 +23,7 @@
           ><button data-tab="ipBlacklist">IP 黑名单</button
           ><span class="nav-heading">设置</span
           ><button data-tab="panelSettings">面板设置</button
+          ><button data-tab="riskRules">风险规则</button
           ><button data-tab="telegram">TG 机器人</button
           ><button data-tab="account">账号安全</button
           ><button data-tab="site" id="siteNav">系统设置</button>
@@ -307,15 +308,59 @@
             <p>每分钟清理超过保留天数的访问记录；可疑用户和评估历史不删除。</p>
             <button>保存面板设置</button>
           </form>
+
+          <form id="banForm" class="settings-form">
+            <h2>可疑用户自动封禁 Xboard 账号</h2>
+            <p>
+              默认关闭。开启后仅对实时判断仍满足可疑用户的用户执行账号封禁；保留的过期风险标记不会单独触发封禁。封禁会修改Xboard用户状态；管理员和员工账号不会自动封禁。
+            </p>
+            <label
+              ><input
+                name="enabled"
+                type="checkbox"
+              />启用可疑用户自动封禁</label
+            >
+            <p>
+              使用v3.5采集插件领取任务，无需填写Xboard地址或管理API凭据。任务约每分钟领取，关闭开关不会撤回已下发的任务；最长30秒内可能仍会执行。
+            </p>
+            <p>
+              无观察期。开启后，符合当前判断条件的可疑用户将在插件下一次领取任务时执行封禁，通常约一分钟内。
+            </p>
+            <button>保存封禁设置</button>
+            <p id="banStatus"></p>
+            <div id="banHistory"></div>
+          </form>
+          <form id="unbanForm" class="settings-form">
+            <h2>手动解封 Xboard 账号</h2>
+            <label
+              >用户 ID<input name="uid" type="number" min="1" required
+            /></label>
+            <label>用户邮箱<input name="email" type="email" required /></label>
+            <p>
+              需要v3.5插件。ID与邮箱必须匹配已采集用户；操作将取消旧风险，新的异常仍会重新评估。不恢复套餐、流量或到期时间。执行结果请查看上方历史。
+            </p>
+            <button>提交解封</button>
+          </form>
+          <div class="settings-block danger">
+            <h2>数据管理</h2>
+            <p>
+              清空访问历史不会删除可疑用户、评估历史或白名单。风险计算所需的短期证据最多保留7天，到期自动清理。
+            </p>
+            <button id="clearVisits">清空访问历史</button
+            ><button id="deletePanel">删除整个面板</button>
+          </div>
+        </section>
+        <section id="riskRules" data-view hidden>
           <form id="rulesForm" class="settings-form">
             <h2>可疑用户判断规则</h2>
             <p>
-              共5条规则，任一触发即标记为可疑用户，不自动解除。用户白名单及访问来源豁免优先；除UA规则外仅统计HTTP
-              2xx成功请求。地域归属依赖IP数据库，未知归属不当作境外。
+              共5类观察规则。已成功下发的访问按原有规则标记可疑，不自动解除；选择“拒绝本次订阅”后，同类条件会在下发前审核。用户白名单和访问来源豁免优先。地域归属依赖IP数据库，未知归属不当作境外。
             </p>
+            <p>下方“拒绝本次订阅”只影响启用后的新请求，默认全部关闭。风控机审核通过后 Xboard 才下发；同一用户 60 分钟内被规则拒绝 3 次时标记可疑。失联时如何处理请在 Xboard 采集插件中设置。</p>
             <fieldset class="rule-card">
               <legend>01 · 非指定客户端获取订阅</legend>
               <label><input type="checkbox" name="uaEnabled" />启用UA检查</label
+              ><label><input type="checkbox" name="reviewBlockUa" />命中时拒绝本次订阅</label
               ><label
                 >允许的UA关键词（每行一个）<textarea
                   name="uaKeywords"
@@ -335,6 +380,7 @@
                   name="chinaEnabled"
                 />启用中国大陆IP检查</label
               >
+              <label><input type="checkbox" name="reviewBlockChina" />命中时拒绝本次订阅</label>
               <p>
                 默认同一用户最近60分钟超过3个不同中国大陆IP（第4个），或720分钟超过10个（第11个）即标记。重复IP只计一个，不区分UA。
               </p>
@@ -380,6 +426,7 @@
                   type="checkbox"
                   name="dcEnabled"
                 />启用云服务器IP检查</label
+              ><label><input type="checkbox" name="reviewBlockCloud" />命中时拒绝本次订阅</label
               ><label
                 >云厂商组织名关键词（每行一个）<textarea
                   name="dcKeywords"
@@ -398,6 +445,7 @@
                   name="foreignEnabled"
                 />启用非中国大陆IP检查</label
               >
+              <label><input type="checkbox" name="reviewBlockForeign" />命中时拒绝本次订阅</label>
               <p>
                 默认同一用户最近60分钟超过3个不同非中国大陆IP（第4个），或720分钟超过10个（第11个）即标记。港澳台计入，归属未知排除。同一IP不区分UA只计一个。
               </p>
@@ -438,6 +486,7 @@
             </fieldset>
             <fieldset class="rule-card">
               <legend>05 · 黑名单 IP 获取订阅</legend>
+              <label><input type="checkbox" name="reviewBlockBlacklist" />命中时拒绝本次订阅</label>
               <p>
                 触发条件：新请求通过有效黑名单 IP
                 成功获取一次订阅，即标记为可疑用户。所有面板共同收集和使用，在“IP
@@ -468,46 +517,6 @@
             <p id="previewResult" role="status"></p>
             <div id="previewExamples"></div>
           </form>
-          <form id="banForm" class="settings-form">
-            <h2>可疑用户自动封禁 Xboard 账号</h2>
-            <p>
-              默认关闭。开启后仅对实时判断仍满足可疑用户的用户执行账号封禁；保留的过期风险标记不会单独触发封禁。封禁会修改Xboard用户状态；管理员和员工账号不会自动封禁。
-            </p>
-            <label
-              ><input
-                name="enabled"
-                type="checkbox"
-              />启用可疑用户自动封禁</label
-            >
-            <p>
-              使用v3.5采集插件领取任务，无需填写Xboard地址或管理API凭据。任务约每分钟领取，关闭开关不会撤回已下发的任务；最长30秒内可能仍会执行。
-            </p>
-            <p>
-              无观察期。开启后，符合当前判断条件的可疑用户将在插件下一次领取任务时执行封禁，通常约一分钟内。
-            </p>
-            <button>保存封禁设置</button>
-            <p id="banStatus"></p>
-            <div id="banHistory"></div>
-          </form>
-          <form id="unbanForm" class="settings-form">
-            <h2>手动解封 Xboard 账号</h2>
-            <label
-              >用户 ID<input name="uid" type="number" min="1" required
-            /></label>
-            <label>用户邮箱<input name="email" type="email" required /></label>
-            <p>
-              需要v3.5插件。ID与邮箱必须匹配已采集用户；操作将取消旧风险，新的异常仍会重新评估。不恢复套餐、流量或到期时间。执行结果请查看上方历史。
-            </p>
-            <button>提交解封</button>
-          </form>
-          <div class="settings-block danger">
-            <h2>数据管理</h2>
-            <p>
-              清空访问历史不会删除可疑用户、评估历史或白名单。风险计算所需的短期证据最多保留7天，到期自动清理。
-            </p>
-            <button id="clearVisits">清空访问历史</button
-            ><button id="deletePanel">删除整个面板</button>
-          </div>
         </section>
         <section id="telegram" data-view hidden>
           <form id="tgForm" class="settings-form">
@@ -689,6 +698,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=3.9.8"></script>
+    <script src="/app.js?v=3.9.9"></script>
   </body>
 </html>

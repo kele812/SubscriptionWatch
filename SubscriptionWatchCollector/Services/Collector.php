@@ -74,6 +74,50 @@ class Collector
         $request->attributes->set(self::MARKER, ['collector' => $this, 'event' => $event, 'start' => microtime(true)]);
     }
 
+    public function failOpen(): bool
+    {
+        return filter_var($this->options['review_fail_open'] ?? true, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    public function review($request): bool
+    {
+        $capture = $request->attributes->get(self::MARKER);
+        if (!$this->ready() || !$capture) throw new \RuntimeException('review unavailable');
+        $event = $capture['event'];
+        $body = json_encode([
+            'schema' => 1,
+            'event_id' => $event['event_id'],
+            'ts' => $event['ts'],
+            'user_id' => $event['user_id'],
+            'email' => $event['email'],
+            'ip' => $event['ip'],
+            'ua' => $event['ua'],
+        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+        $timestamp = (string) time();
+        $secret = (string) $this->options['secret'];
+        $signature = hash_hmac('sha256', $timestamp . "\n" . $body, $secret);
+        $response = Http::connectTimeout(1)->timeout(2)->withoutRedirecting()
+            ->withHeaders([
+                'X-Watch-Timestamp' => $timestamp,
+                'X-Watch-Signature' => $signature,
+                'X-Watch-Panel' => (string) ($this->options['panel_id'] ?? ''),
+            ])
+            ->withBody($body, 'application/json')
+            ->post(rtrim($this->options['endpoint'], '/') . '/api/collector/review');
+        if ($response->status() >= 400 && $response->status() < 500)
+            throw new \UnexpectedValueException('review authentication or request rejected');
+        if ($response->status() !== 200) throw new \RuntimeException('review unavailable');
+        $signed = (string) $response->header('X-Watch-Decision-Signature');
+        if (!preg_match('/^[a-f0-9]{64}$/', $signed)
+            || !hash_equals(hash_hmac('sha256', $response->body(), $secret), $signed))
+            throw new \UnexpectedValueException('review signature invalid');
+        $answer = $response->json();
+        if (!is_array($answer) || ($answer['event_id'] ?? null) !== $event['event_id']
+            || !is_bool($answer['allow'] ?? null))
+            throw new \UnexpectedValueException('review response invalid');
+        return $answer['allow'];
+    }
+
     public static function handled($handled): void
     {
         try {
@@ -107,7 +151,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '3.9.8', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '3.9.9', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Http::connectTimeout(1)->timeout(3)->withoutRedirecting()

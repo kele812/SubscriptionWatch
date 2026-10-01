@@ -1,7 +1,7 @@
 {
   "name": "订阅观察采集器",
   "code": "subscription_watch_collector",
-  "version": "3.9.8",
+  "version": "3.9.9",
   "description": "订阅轻量采集与签名封禁任务执行，风险计算在风控机。",
   "author": "Subscription Watch",
   "type": "feature",
@@ -23,6 +23,12 @@
       "default": "",
       "label": "采集密钥",
       "description": "从风控后台的接入设置复制采集密钥；不是Xboard管理凭据。"
+    },
+    "review_fail_open": {
+      "type": "boolean",
+      "default": true,
+      "label": "风控后台失联时继续下发",
+      "description": "开启：风控后台连接失败、超时或服务器故障时照常下发。关闭：只拒绝本次订阅。风控后台明确拒绝、密钥错误或响应验签失败时始终拒绝。"
     },
     "trusted_proxies": {
       "type": "string",
