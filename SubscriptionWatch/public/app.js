@@ -188,6 +188,7 @@ function riskDetail(r) {
         原始UA: e.ua,
         通过反代IP: e.proxyIp,
         通过反代名称: e.proxyName,
+        反代已核验: e.proxyVerified,
         自有节点: e.owned ? "是" : "否",
         计入: e.included,
         排除原因: e.exclusion,
@@ -314,6 +315,7 @@ function sourceTraceDetail(r) {
     直接连接IP: r.peer_ip,
     通过反代IP: r.proxy_ip,
     通过反代名称: r.proxy_name,
+    反代已核验: r.proxy_verified,
     IP取值依据: r.ip_source,
     原始UA: r.ua,
     状态: requestStatusText(r.status),
@@ -551,11 +553,16 @@ function detail(data) {
     card.className = "evidence-card";
     line(card, `${data.时间} · ${data.来源IP}`, "evidence-summary");
     const proxyRecorded = Boolean(data.通过反代IP || data.通过反代名称);
+    const proxyLabel = `${data.通过反代名称 || "未命名"} · ${data.通过反代IP || "IP 未记录"}`;
     line(
       card,
-      proxyRecorded
-        ? `访问方式：经外部反代 · ${data.通过反代名称 || "未命名"} · ${data.通过反代IP || "IP 未记录"}`
-        : "访问方式：未记录外部反代",
+      data.反代已核验 === 1 && proxyRecorded
+        ? `访问方式：核对到外部反代 · ${proxyLabel}`
+        : proxyRecorded
+          ? `访问方式：旧记录的反代标识未核实 · ${proxyLabel}`
+          : data.反代已核验 === 0
+            ? "访问方式：未记录外部反代"
+            : "访问方式：旧记录未保存反代信息",
       "evidence-summary",
     );
     if (data.归属地) line(card, geoText(data.归属地));
@@ -1068,6 +1075,7 @@ async function refresh() {
               直接连接IP: r.peer_ip,
               通过反代IP: r.proxy_ip,
               通过反代名称: r.proxy_name,
+              反代已核验: r.proxy_verified,
               IP取值依据: r.ip_source,
               状态: requestStatusText(r.status),
               耗时毫秒: r.ms,

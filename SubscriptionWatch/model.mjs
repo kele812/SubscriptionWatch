@@ -94,6 +94,7 @@ export function migrateRequestEvidence(db) {
         ["delivered", "INTEGER"],
         ["proxy_ip", "TEXT"],
         ["proxy_name", "TEXT"],
+        ["proxy_verified", "INTEGER"],
       ],
     ],
     [
@@ -101,6 +102,7 @@ export function migrateRequestEvidence(db) {
       [
         ["proxy_ip", "TEXT"],
         ["proxy_name", "TEXT"],
+        ["proxy_verified", "INTEGER"],
       ],
     ],
   ]) {
@@ -210,12 +212,12 @@ export function initialize(db, encrypt) {
     CREATE TABLE IF NOT EXISTS accounts(id INTEGER PRIMARY KEY,username TEXT UNIQUE COLLATE NOCASE NOT NULL,password_hash TEXT NOT NULL,admin INTEGER DEFAULT 0,disabled INTEGER DEFAULT 0,created INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS panels(id INTEGER PRIMARY KEY,owner INTEGER NOT NULL REFERENCES accounts(id),name TEXT NOT NULL,public_id TEXT UNIQUE NOT NULL,secret TEXT NOT NULL,rules TEXT NOT NULL,notify INTEGER DEFAULT 1,cleared_at INTEGER DEFAULT 0,last_seen INTEGER,pending INTEGER DEFAULT 0,dropped INTEGER DEFAULT 0,expired INTEGER DEFAULT 0,version TEXT,legacy INTEGER DEFAULT 0);
     CREATE TABLE IF NOT EXISTS subjects(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT NOT NULL,white INTEGER DEFAULT 0,dismissed INTEGER DEFAULT 0,PRIMARY KEY(panel,uid));
-    CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,ts INTEGER,uid INTEGER,email TEXT,ip TEXT,ua TEXT,peer_ip TEXT,ip_source TEXT,proxy_ip TEXT,proxy_name TEXT,status INTEGER,ms INTEGER,bytes INTEGER);
+    CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,ts INTEGER,uid INTEGER,email TEXT,ip TEXT,ua TEXT,peer_ip TEXT,ip_source TEXT,proxy_ip TEXT,proxy_name TEXT,proxy_verified INTEGER,status INTEGER,ms INTEGER,bytes INTEGER);
     CREATE INDEX IF NOT EXISTS visit_subject ON visits(panel,uid,ts);
     CREATE INDEX IF NOT EXISTS visit_time ON visits(panel,ts);
     CREATE TABLE IF NOT EXISTS receipts(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,event_id TEXT,ts INTEGER,PRIMARY KEY(panel,event_id));
     CREATE INDEX IF NOT EXISTS receipt_ts_v3 ON receipts(ts);
-    CREATE TABLE IF NOT EXISTS samples(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,ts INTEGER,ip TEXT,ua TEXT,proxy_ip TEXT,proxy_name TEXT);
+    CREATE TABLE IF NOT EXISTS samples(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,ts INTEGER,ip TEXT,ua TEXT,proxy_ip TEXT,proxy_name TEXT,proxy_verified INTEGER);
     CREATE INDEX IF NOT EXISTS sample_subject ON samples(panel,uid,ts);
     CREATE INDEX IF NOT EXISTS sample_time ON samples(ts);
     CREATE TABLE IF NOT EXISTS ip_blacklist(ip TEXT PRIMARY KEY,source_panel INTEGER,source_name TEXT NOT NULL,source_uid INTEGER NOT NULL,source_ts INTEGER NOT NULL,added INTEGER NOT NULL,expires INTEGER NOT NULL,removed_at INTEGER NOT NULL DEFAULT 0);

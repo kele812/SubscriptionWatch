@@ -19,19 +19,29 @@ class Collector
 
     public static function sourceIp(string $peer, string $forwarded, string $configured): array
     {
+        return self::sourceTrace($peer, $forwarded, $configured)['source'];
+    }
+
+    private static function sourceTrace(string $peer, string $forwarded, string $configured): array
+    {
         $normalize = static fn ($ip) => str_starts_with($ip, '::ffff:') ? substr($ip, 7) : $ip;
         $peer = $normalize($peer);
         if (!filter_var($peer, FILTER_VALIDATE_IP)) $peer = '0.0.0.0';
         $trusted = array_map($normalize, array_map('trim', preg_split('/[\s,]+/', $configured, -1, PREG_SPLIT_NO_EMPTY)));
         $address = $peer;
+        $trustedHops = in_array($peer, $trusted, true) ? [$peer] : [];
         $hops = array_slice(explode(',', $forwarded), -16);
         foreach (array_reverse($hops) as $hop) {
             if (!in_array($address, $trusted, true)) break;
             $hop = $normalize(trim($hop));
             if (!filter_var($hop, FILTER_VALIDATE_IP)) break;
             $address = $hop;
+            if (in_array($address, $trusted, true)) $trustedHops[] = $address;
         }
-        return ['ip' => $address, 'peer_ip' => $peer, 'ip_source' => $address === $peer ? 'peer' : 'trusted_proxy'];
+        return [
+            'source' => ['ip' => $address, 'peer_ip' => $peer, 'ip_source' => $address === $peer ? 'peer' : 'trusted_proxy'],
+            'trusted_hops' => $trustedHops,
+        ];
     }
 
     public function mark($request): void
@@ -39,13 +49,18 @@ class Collector
         if (!$this->ready() || $request->attributes->has(self::MARKER)) return;
         $user = $request->user();
         if (!$user || !$user->id) return;
-        $source = self::sourceIp((string) $request->server('REMOTE_ADDR', ''), (string) $request->header('X-Forwarded-For', ''), (string) ($this->options['trusted_proxies'] ?? ''));
+        $trace = self::sourceTrace((string) $request->server('REMOTE_ADDR', ''), (string) $request->header('X-Forwarded-For', ''), (string) ($this->options['trusted_proxies'] ?? ''));
+        $source = $trace['source'];
         $proxyIp = trim((string) $request->header('X-Watch-Proxy-IP', ''));
         $proxyName = mb_strcut(trim((string) $request->header('X-Watch-Proxy-Name', '')), 0, 128, 'UTF-8');
-        if (!filter_var($proxyIp, FILTER_VALIDATE_IP)) $proxyIp = null;
-        if ($proxyName === '') $proxyName = null;
+        if (str_starts_with($proxyIp, '::ffff:')) $proxyIp = substr($proxyIp, 7);
+        $proxyVerified = filter_var($proxyIp, FILTER_VALIDATE_IP)
+            && $proxyIp !== $source['peer_ip']
+            && in_array($proxyIp, $trace['trusted_hops'], true);
+        if (!$proxyVerified) { $proxyIp = null; $proxyName = null; }
+        elseif ($proxyName === '') $proxyName = null;
         $event = array_merge($source, [
-            'proxy_ip' => $proxyIp, 'proxy_name' => $proxyName,
+            'proxy_ip' => $proxyIp, 'proxy_name' => $proxyName, 'proxy_verified' => (bool) $proxyVerified,
             'event_id' => bin2hex(random_bytes(16)), 'ts' => (int) round(microtime(true) * 1000),
             'user_id' => (int) $user->id, 'email' => mb_strcut((string) $user->email, 0, 254, 'UTF-8'),
             'ua' => mb_strcut((string) $request->header('User-Agent', ''), 0, 1024, 'UTF-8'),
@@ -92,7 +107,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '3.9.3', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '3.9.4', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Http::connectTimeout(1)->timeout(3)->withoutRedirecting()

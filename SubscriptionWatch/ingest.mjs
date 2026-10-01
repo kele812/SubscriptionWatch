@@ -85,6 +85,10 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
       (e.proxy_name !== undefined &&
         e.proxy_name !== null &&
         !str(e.proxy_name, 128)) ||
+      (e.proxy_verified !== undefined &&
+        typeof e.proxy_verified !== "boolean") ||
+      (e.proxy_verified === true && !e.proxy_ip) ||
+      (e.proxy_verified === false && (e.proxy_ip || e.proxy_name)) ||
       !["peer", "trusted_proxy"].includes(e.ip_source) ||
       !Number.isInteger(e.status) ||
       e.status < 100 ||
@@ -113,10 +117,10 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
         "INSERT INTO subjects(panel,uid,email,verified) VALUES(?,?,?,1) ON CONFLICT(panel,uid) DO UPDATE SET white=CASE WHEN subjects.email=excluded.email THEN subjects.white ELSE 0 END,email=excluded.email,verified=1",
       );
       const visit = db.prepare(
-        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,proxy_ip,proxy_name,status,ms,bytes,event_id,token_fingerprint,content_type,delivered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,proxy_ip,proxy_name,proxy_verified,status,ms,bytes,event_id,token_fingerprint,content_type,delivered) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       );
       const sample = db.prepare(
-        "INSERT INTO samples(panel,uid,ts,ip,ua,proxy_ip,proxy_name,status,delivered) VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO samples(panel,uid,ts,ip,ua,proxy_ip,proxy_name,proxy_verified,status,delivered) VALUES(?,?,?,?,?,?,?,?,?,?)",
       );
       for (const e of batch.events) {
         if (e.ts <= panel.cleared_at) {
@@ -143,6 +147,7 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           e.ip_source,
           e.proxy_ip ?? null,
           e.proxy_name ?? null,
+          e.proxy_verified === undefined ? null : Number(e.proxy_verified),
           e.status,
           e.ms,
           e.bytes,
@@ -159,6 +164,7 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           e.ua,
           e.proxy_ip ?? null,
           e.proxy_name ?? null,
+          e.proxy_verified === undefined ? null : Number(e.proxy_verified),
           e.status,
           e.delivered === undefined ? null : Number(e.delivered),
         );
@@ -169,6 +175,7 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           ua: e.ua,
           proxy_ip: e.proxy_ip ?? null,
           proxy_name: e.proxy_name ?? null,
+          proxy_verified: e.proxy_verified === undefined ? null : Number(e.proxy_verified),
           status: e.status,
           delivered: e.delivered === undefined ? null : Number(e.delivered),
         });
