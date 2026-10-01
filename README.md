@@ -1,8 +1,8 @@
-# SubscriptionWatch v3.9.2
+# SubscriptionWatch v3.9.3
 
 ## 上传插件
 
-后台和采集插件统一为 **v3.9.2**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v3.9.2.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.9.2.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
+后台和采集插件统一为 **v3.9.3**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v3.9.3.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.9.3.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
 
 先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；Xboard 原有的每分钟计划任务需正常运行。
 

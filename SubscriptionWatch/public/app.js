@@ -550,6 +550,14 @@ function detail(data) {
     const card = document.createElement("section");
     card.className = "evidence-card";
     line(card, `${data.时间} · ${data.来源IP}`, "evidence-summary");
+    const proxyRecorded = Boolean(data.通过反代IP || data.通过反代名称);
+    line(
+      card,
+      proxyRecorded
+        ? `访问方式：经外部反代 · ${data.通过反代名称 || "未命名"} · ${data.通过反代IP || "IP 未记录"}`
+        : "访问方式：未记录外部反代",
+      "evidence-summary",
+    );
     if (data.归属地) line(card, geoText(data.归属地));
     line(card, `状态：${data.状态}`);
     if (data.确认返回订阅) line(card, `订阅内容：${data.确认返回订阅}`);
@@ -559,20 +567,14 @@ function detail(data) {
     const toggle = document.createElement("summary");
     toggle.textContent = "连接详情";
     extra.append(toggle);
-    line(extra, `直接连接 IP：${data.直接连接IP || "未知"}`);
-    if (data.通过反代IP || data.通过反代名称)
-      line(
-        extra,
-        `通过反代：${data.通过反代名称 || "未命名"} · ${data.通过反代IP || "未知IP"}`,
-      );
+    line(extra, `Xboard 最后一跳 IP：${data.直接连接IP || "未知"}`);
     line(
       extra,
-      `来源 IP 取值：${data.IP取值依据 === "trusted_proxy" ? "可信代理转发" : data.IP取值依据 === "peer" ? "直接连接" : "旧版未知"}`,
+      `客户 IP 来源：${data.IP取值依据 === "trusted_proxy" ? "代理转发信息（本机 Nginx 也可能如此）" : data.IP取值依据 === "peer" ? "直接连接" : "旧版未知"}`,
     );
-    line(
-      extra,
-      "来源 IP 是服务器记录的请求来源，不能单独证明账号本人发起。需结合上游反代日志核查。",
-    );
+    if (!proxyRecorded)
+      line(extra, "未记录外部反代不等于确认直连；也可能是反代未设置标识。");
+    line(extra, "来源 IP 是服务器记录值，不能单独证明是账号本人发起。");
     line(extra, `耗时：${data.耗时毫秒 ?? "未知"} 毫秒`);
     if (data.请求编号) line(extra, `请求编号：${data.请求编号}`);
     if (data.订阅指纹) line(extra, `订阅指纹：${data.订阅指纹}`);
