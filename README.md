@@ -1,10 +1,10 @@
-# SubscriptionWatch v3.9.7
+# SubscriptionWatch v3.9.8
 
 ## 上传插件
 
-后台和采集插件统一为 **v3.9.7**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v3.9.7.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.9.7.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
+后台和采集插件统一为 **v3.9.8**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v3.9.8.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v3.9.8.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
 
-本版将黑名单的触发用户显示为邮箱，点击邮箱可按来源面板和用户 ID 查看订阅访问记录。旧记录优先从原访问记录补齐邮箱，无法核实时显示“邮箱未记录”。
+本版在可疑用户列表中保留用户 ID，并将邮箱设为链接。点击邮箱可按当前面板和用户 ID 查看该用户最近的订阅访问记录。
 
 先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；Xboard 原有的每分钟计划任务需正常运行。
 

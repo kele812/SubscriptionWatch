@@ -136,24 +136,38 @@ function button(label, fn) {
   b.onclick = run(fn);
   return b;
 }
-function blacklistSourceLink(row) {
-  const label = row.source_email || `邮箱未记录（用户 ID ${row.source_uid}）`;
-  if (!panels.some((p) => p.id === row.source_panel)) return label;
+function visitHistoryLink(label, sourcePanel, sourceUid) {
+  if (!panels.some((p) => p.id === sourcePanel)) return label;
   const link = document.createElement("a");
   link.href = "#history";
   link.textContent = label;
   link.title = "查看该用户近期的订阅访问记录";
   link.onclick = (event) => {
     event.preventDefault();
-    panelId = row.source_panel;
+    panelId = sourcePanel;
     $("#panelSelect").value = String(panelId);
     fillRules();
     for (const input of $("#filters").elements)
       if (input.name) input.value = "";
-    $("#filters").elements.uid.value = String(row.source_uid);
+    $("#filters").elements.uid.value = String(sourceUid);
     showTab("history");
   };
   return link;
+}
+function blacklistSourceLink(row) {
+  return visitHistoryLink(
+    row.source_email || `邮箱未记录（用户 ID ${row.source_uid}）`,
+    row.source_panel,
+    row.source_uid,
+  );
+}
+function riskUserLink(row, sourcePanel) {
+  const cell = document.createElement("span");
+  cell.append(
+    `${row.uid} / `,
+    visitHistoryLink(row.email || "邮箱未记录", sourcePanel, row.uid),
+  );
+  return cell;
 }
 function riskCollectionAction(id, user, collecting) {
   return button(collecting ? "取消采集" : "开启采集", () =>
@@ -1140,7 +1154,7 @@ async function refresh() {
         ],
         rows.map((r) => [
           batchCheck("risk", r.uid, `选择可疑用户 ${r.uid}`, !r.active),
-          r.uid + " / " + r.email,
+          riskUserLink(r, id),
           grade(r.level),
           r.reasons.map((x) => x.label + "：" + x.count).join("\n") || "—",
           r.accountAction
