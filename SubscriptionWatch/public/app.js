@@ -354,16 +354,22 @@ function sourceTraceDetail(r) {
     用户ID: r.uid,
     邮箱: r.email,
     来源IP: r.ip,
-    直接连接IP: r.peer_ip,
+    归属地: r.geo,
     通过反代IP: r.proxy_ip,
     通过反代名称: r.proxy_name,
     反代已核验: r.proxy_verified,
-    IP取值依据: r.ip_source,
     原始UA: r.ua,
     状态: visitStatusText(r),
     请求响应: requestStatusText(r.status),
-    确认返回订阅:
-      r.delivered === 1 ? "是" : r.delivered === 0 ? "否" : "旧版未核实",
+    触发规则: r.review_reasons,
+    订阅内容:
+      r.delivered === 1
+        ? "已返回订阅内容"
+        : r.review_blocked === 1
+          ? "未返回订阅内容（规则拦截后跳转）"
+          : r.delivered === 0
+            ? "未返回订阅内容"
+            : "旧记录无法确认是否返回",
     请求编号: r.event_id,
     订阅指纹: r.token_fingerprint,
     内容类型: r.content_type,
@@ -594,41 +600,39 @@ function detail(data) {
     line(evidence, `用户 ${data.用户ID} · ${data.邮箱}`);
     const card = document.createElement("section");
     card.className = "evidence-card";
-    line(card, `${data.时间} · ${data.来源IP}`, "evidence-summary");
+    line(card, `时间：${data.时间}`, "evidence-summary");
+    line(card, `IP 及归属地：${data.来源IP || "未知"} · ${geoText(data.归属地 || {})}`);
     const proxyRecorded = Boolean(data.通过反代IP || data.通过反代名称);
     const proxyLabel = `${data.通过反代名称 || "未命名"} · ${data.通过反代IP || "IP 未记录"}`;
     line(
       card,
       data.反代已核验 === 1 && proxyRecorded
-        ? `访问方式：核对到外部反代 · ${proxyLabel}`
+        ? `通过哪里反代：${proxyLabel}`
         : proxyRecorded
-          ? `访问方式：旧记录的反代标识未核实 · ${proxyLabel}`
-          : data.反代已核验 === 0
-            ? "访问方式：未记录外部反代"
-            : "访问方式：旧记录未保存反代信息",
+          ? `通过哪里反代：${proxyLabel}（旧记录未核实）`
+          : "通过哪里反代：未记录外部反代（无法判断是否直连）",
       "evidence-summary",
     );
-    if (data.归属地) line(card, geoText(data.归属地));
-    line(card, `状态：${data.状态}`);
-    if (data.确认返回订阅) line(card, `订阅内容：${data.确认返回订阅}`);
+    let statusLine = `状态：${data.状态}`;
+    if (data.状态 === "规则拦截跳转") {
+      let reasons = [];
+      try { reasons = JSON.parse(data.触发规则 || "[]"); } catch {}
+      statusLine += ` · 触发规则：${Array.isArray(reasons) && reasons.length ? reasons.join("、") : "旧记录未保存具体规则"}`;
+    } else if (data.状态 !== "订阅成功") {
+      statusLine += ` · ${data.请求响应 === "请求成功" ? "请求完成，但未返回订阅内容" : `请求响应：${data.请求响应 || "未知"}`}`;
+    }
+    line(card, statusLine);
+    line(card, `订阅内容：${data.订阅内容}`);
     line(card, `UA：${data.原始UA || "（空）"}`);
     const extra = document.createElement("details");
     extra.className = "evidence-more";
     const toggle = document.createElement("summary");
     toggle.textContent = "连接详情";
     extra.append(toggle);
-    line(extra, `Xboard 最后一跳 IP：${data.直接连接IP || "未知"}`);
-    line(
-      extra,
-      `客户 IP 来源：${data.IP取值依据 === "trusted_proxy" ? "代理转发信息（本机 Nginx 也可能如此）" : data.IP取值依据 === "peer" ? "直接连接" : "旧版未知"}`,
-    );
-    if (!proxyRecorded)
-      line(extra, "未记录外部反代不等于确认直连；也可能是反代未设置标识。");
-    line(extra, "来源 IP 是服务器记录值，不能单独证明是账号本人发起。");
     line(extra, `耗时：${data.耗时毫秒 ?? "未知"} 毫秒`);
-    if (data.请求编号) line(extra, `请求编号：${data.请求编号}`);
-    if (data.订阅指纹) line(extra, `订阅指纹：${data.订阅指纹}`);
-    if (data.内容类型) line(extra, `内容类型：${data.内容类型}`);
+    line(extra, `请求编号：${data.请求编号 || "未记录"}`);
+    line(extra, `订阅指纹：${data.订阅指纹 || "未记录"}`);
+    line(extra, `内容类型：${data.内容类型 || "未记录"}`);
     card.append(extra);
     evidence.append(card);
   }
@@ -1100,34 +1104,7 @@ async function refresh() {
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
           visitStatusText(r),
-          button("查看", () =>
-            detail({
-              时间: format(r.ts),
-              用户ID: r.uid,
-              邮箱: r.email,
-              来源IP: r.ip,
-              归属地: r.geo,
-              原始UA: r.ua,
-
-              直接连接IP: r.peer_ip,
-              通过反代IP: r.proxy_ip,
-              通过反代名称: r.proxy_name,
-              反代已核验: r.proxy_verified,
-              IP取值依据: r.ip_source,
-              状态: visitStatusText(r),
-              请求响应: requestStatusText(r.status),
-              耗时毫秒: r.ms,
-              请求编号: r.event_id,
-              订阅指纹: r.token_fingerprint,
-              内容类型: r.content_type,
-              确认返回订阅:
-                r.delivered === 1
-                  ? "是"
-                  : r.delivered === 0
-                    ? "否"
-                    : "旧版未核实",
-            }),
-          ),
+          button("查看", () => detail(sourceTraceDetail(r))),
         ]),
       );
       $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;

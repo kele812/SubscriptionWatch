@@ -94,6 +94,7 @@ export function migrateRequestEvidence(db) {
         ["content_type", "TEXT"],
         ["delivered", "INTEGER"],
         ["review_blocked", "INTEGER"],
+        ["review_reasons", "TEXT"],
       ],
     ],
     [
@@ -124,6 +125,9 @@ export function migrateRequestEvidence(db) {
       if (!existing.has(name))
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   }
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='review_decisions'").get() &&
+      !db.prepare("PRAGMA table_info(review_decisions)").all().some((column) => column.name === "reason_labels"))
+    db.exec("ALTER TABLE review_decisions ADD COLUMN reason_labels TEXT");
   db.exec("CREATE INDEX IF NOT EXISTS visit_source_time ON visits(ip,ts DESC)");
   const blacklistColumns = new Set(
     db
@@ -449,4 +453,3 @@ export function validateRules(b) {
   r.reviewRedirectUrl = redirect.href;
   return { ...r, schema: 3100 };
 }
-

@@ -46,6 +46,7 @@ import {
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
+import { describeReviewCodes } from "./review-labels.mjs";
 import { evaluate, resolveRisk, riskRows, riskLevel } from "./risk.mjs";
 import {
   blacklistRows,
@@ -82,6 +83,18 @@ function password(p, confirm) {
 const fail = (status, message) => {
   throw Object.assign(Error(message), { status });
 };
+function withReviewReason(db, row) {
+  if (row.review_blocked !== 1 || row.review_reasons || !row.event_id) return row;
+  const decision = db.prepare(
+    "SELECT codes,reason_labels FROM review_decisions WHERE panel=? AND event_id=?",
+  ).get(row.panel, row.event_id);
+  if (!decision) return row;
+  return {
+    ...row,
+    review_reasons: decision.reason_labels ||
+      JSON.stringify(describeReviewCodes(JSON.parse(decision.codes))),
+  };
+}
 const batchItems = (value, valid, label) => {
   if (
     !Array.isArray(value) ||
@@ -583,6 +596,7 @@ export function createApp({
           if (!account.admin) fail(403, "无权查看跨面板来源IP");
           const ip = String(u.searchParams.get("ip") || "").trim();
           if (!isIP(ip)) fail(400, "请输入完整的IPv4或IPv6地址");
+          const ipGeo = geo.lookup(ip);
           const summary = db
             .prepare(
               `SELECT COUNT(*) requests,
@@ -601,8 +615,11 @@ export function createApp({
             JOIN panels p ON p.id=v.panel WHERE v.ip=?
             ORDER BY v.ts DESC,v.id DESC LIMIT 100`,
             )
-            .all(ip);
-          return json(res, 200, { ip, geo: geo.lookup(ip), summary, rows });
+            .all(ip).map((row) => ({
+              ...withReviewReason(db, row),
+              geo: ipGeo,
+            }));
+          return json(res, 200, { ip, geo: ipGeo, summary, rows });
         }
         if (route.startsWith("/api/admin/ip-blacklist")) {
           if (!account.admin) fail(403, "无权管理共享IP黑名单");
@@ -976,7 +993,7 @@ export function createApp({
               action === "export" ? 50000 : 50,
               action === "export" ? 0 : offset,
             )
-            .map((r) => ({ ...r, geo: geo.lookup(r.ip) }));
+            .map((r) => ({ ...withReviewReason(db, r), geo: geo.lookup(r.ip) }));
           if (action === "export") {
             const escape = (x) =>
               '"' +
@@ -1061,7 +1078,7 @@ export function createApp({
             .slice(0, 20)
             .map((r) =>
               kind === "visits"
-                ? { ...r, geo: geo.lookup(r.ip) }
+                ? { ...withReviewReason(db, r), geo: geo.lookup(r.ip) }
                 : kind === "risks"
                   ? { ...r, reasons: enrich(JSON.parse(r.reasons)) }
                   : r,
@@ -1253,7 +1270,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.2 ready");
+  console.log("Subscription Watch v4.0.3 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

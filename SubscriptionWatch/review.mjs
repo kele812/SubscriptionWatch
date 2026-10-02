@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { defaults, transaction } from "./model.mjs";
+import { describeReviewCodes } from "./review-labels.mjs";
 import {
   activeBlacklistedIP,
   blacklistSettings,
@@ -52,7 +53,7 @@ function reason(code, label, rows, threshold, minutes, now, count = rows.length)
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.2",
+    ruleVersion: "4.0.3",
   };
 }
 
@@ -103,13 +104,17 @@ function decide(db, panel, event, geo, now) {
   if (requestCount(db, panel, event, now) >= rules.dailyLimit)
     codes.push("daily-limit");
   if (subject?.white) return { codes, redirect: rules.reviewRedirectUrl };
-  const active = db.prepare("SELECT 1 FROM risks WHERE panel=? AND uid=? AND active=1")
+  const active = db.prepare("SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1")
     .get(panel.id, event.user_id);
   if (active) codes.push("active-risk");
   const place = geo?.lookup(event.ip) || {};
   const exempt = rules.ipWhitelist.includes(event.ip) ||
     (rules.cloudflareExempt && /\bcloudflare\b/i.test(place.organization || ""));
-  if (exempt || active) return { codes, redirect: rules.reviewRedirectUrl };
+  if (exempt || active) return {
+    codes,
+    redirect: rules.reviewRedirectUrl,
+    activeReasons: active ? JSON.parse(active.reasons) : [],
+  };
 
   if (rules.uaEnabled && !rules.uaKeywords.some((word) =>
     event.ua.toLowerCase().includes(word.toLowerCase()))) {
@@ -198,10 +203,11 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       "INSERT INTO subjects(panel,uid,email,verified) VALUES(?,?,?,1) ON CONFLICT(panel,uid) DO UPDATE SET white=CASE WHEN subjects.email=excluded.email THEN subjects.white ELSE 0 END,email=excluded.email,verified=1",
     ).run(panel.id, event.user_id, event.email);
     const result = decide(db, panel, event, geo, now);
+    const reasonLabels = describeReviewCodes(result.codes, result.activeReasons);
     db.prepare(
-      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes) VALUES(?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels) VALUES(?,?,?,?,?,?,?,?,?,?)",
     ).run(panel.id, event.event_id, event.user_id, event.email, event.ip, event.ua,
-      now, Number(result.codes.length > 0), JSON.stringify(result.codes));
+      now, Number(result.codes.length > 0), JSON.stringify(result.codes), JSON.stringify(reasonLabels));
     return { allow: result.codes.length === 0, codes: result.codes,
       redirect: result.codes.length ? result.redirect : null };
   });
