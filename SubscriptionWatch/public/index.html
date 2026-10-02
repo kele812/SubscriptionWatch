@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.1" />
+    <link rel="stylesheet" href="/style.css?v=4.0.2" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.1 · 独立采集 · 风险评估</small>
+        <small>v4.0.2 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
@@ -65,7 +65,7 @@
             ><label>邮箱<input name="email" /></label
             ><label>来源IP<input name="ip" /></label
             ><label>原始UA<input name="ua" /></label
-            ><label>状态<select name="result"><option value="">全部</option><option value="success">订阅成功</option><option value="redirect">规则拦截跳转</option><option value="failure">请求失败</option></select></label
+            ><label>状态<select name="result"><option value="">全部</option><option value="success">订阅成功</option><option value="redirect">规则拦截跳转</option><option value="failure">请求失败</option><option value="other">其他响应／未核实</option></select></label
             ><label>开始时间<input name="from" type="datetime-local" /></label
             ><label>结束时间<input name="to" type="datetime-local" /></label
             ><button>查询</button><button type="reset">重置</button
@@ -712,7 +712,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.1"></script>
+    <script src="/app.js?v=4.0.2"></script>
   </body>
 </html>
-

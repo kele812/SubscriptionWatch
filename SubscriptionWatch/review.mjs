@@ -52,7 +52,7 @@ function reason(code, label, rows, threshold, minutes, now, count = rows.length)
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.1",
+    ruleVersion: "4.0.2",
   };
 }
 
@@ -207,4 +207,3 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
   });
   return reply(res, 200, { ...decision, event_id: event.event_id }, secret);
 }
-

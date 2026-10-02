@@ -84,7 +84,11 @@ function requestStatusText(value) {
   );
 }
 function visitStatusText(row) {
-  return row.review_blocked === 1 ? "规则拦截跳转" : requestStatusText(row.status);
+  if (row.review_blocked === 1) return "规则拦截跳转";
+  if (row.delivered === 1 && row.status >= 200 && row.status < 300)
+    return "订阅成功";
+  if (row.delivered === 0 || row.status >= 400) return "请求失败";
+  return "其他响应／未核实";
 }
 function toast(text) {
   $("#toast").textContent = text;
@@ -357,6 +361,7 @@ function sourceTraceDetail(r) {
     IP取值依据: r.ip_source,
     原始UA: r.ua,
     状态: visitStatusText(r),
+    请求响应: requestStatusText(r.status),
     确认返回订阅:
       r.delivered === 1 ? "是" : r.delivered === 0 ? "否" : "旧版未核实",
     请求编号: r.event_id,
@@ -890,11 +895,7 @@ async function refresh() {
             format(r.ts),
             r.panel_name,
             `${r.uid} / ${r.email}`,
-            r.delivered === 1
-              ? "已确认返回订阅"
-              : r.delivered === 0
-                ? visitStatusText(r)
-                : "旧版未核实",
+            visitStatusText(r),
             button("核查链路", () => detail(sourceTraceDetail(r))),
           ]),
         );
@@ -1098,7 +1099,7 @@ async function refresh() {
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
-          `${visitStatusText(r)}${r.delivered === 0 && r.review_blocked !== 1 ? " · 未确认返回订阅" : ""}`,
+          visitStatusText(r),
           button("查看", () =>
             detail({
               时间: format(r.ts),
@@ -1114,6 +1115,7 @@ async function refresh() {
               反代已核验: r.proxy_verified,
               IP取值依据: r.ip_source,
               状态: visitStatusText(r),
+              请求响应: requestStatusText(r.status),
               耗时毫秒: r.ms,
               请求编号: r.event_id,
               订阅指纹: r.token_fingerprint,
@@ -1873,4 +1875,3 @@ $("#exportBlacklist").onclick = run(async () => {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
   toast("黑名单已导出，每行一个 IP");
 });
-

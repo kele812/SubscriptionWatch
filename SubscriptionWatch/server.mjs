@@ -955,9 +955,10 @@ export function createApp({
           const resultFilter = u.searchParams.get("result") || "";
           const resultConditions = {
             "": null,
-            success: "delivered=1 AND status BETWEEN 200 AND 299",
+            success: "COALESCE(review_blocked,0)=0 AND delivered=1 AND status BETWEEN 200 AND 299",
             redirect: "review_blocked=1",
             failure: "COALESCE(review_blocked,0)=0 AND (delivered=0 OR status>=400)",
+            other: "COALESCE(review_blocked,0)=0 AND NOT (COALESCE(delivered,-1)=1 AND COALESCE(status,0) BETWEEN 200 AND 299) AND NOT (COALESCE(delivered,-1)=0 OR COALESCE(status,0)>=400)",
           };
           if (!Object.hasOwn(resultConditions, resultFilter))
             fail(400, "状态筛选无效");
@@ -1252,8 +1253,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.1 ready");
+  console.log("Subscription Watch v4.0.2 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }
-
