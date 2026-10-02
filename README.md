@@ -1,10 +1,10 @@
-# SubscriptionWatch v4.0.0
+# SubscriptionWatch v4.0.1
 
 ## 上传插件
 
-后台和采集插件统一为 **v4.0.0**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.0.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.0.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
+后台和采集插件统一为 **v4.0.1**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.1.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.1.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。
 
-风险规则有独立菜单。非指定客户端首次请求即标记可疑并跳转；多个中国大陆或非中国大陆 IP 在达到阈值的当次标记并跳转；云服务器 IP 每次请求都跳转，60 分钟第 3 次或 720 分钟第 10 次标记可疑。黑名单命中可选择启用拦截。每个用户滚动 24 小时默认最多请求 30 次，第 31 次起跳转，成功和拦截都计数。可疑标记持续拦截，手动取消后停止按旧标记拦截，出现新异常时重新标记。跳转地址默认百度，可在规则页修改。风控后台失联时是否继续下发在插件配置里设置，默认继续下发。
+风险规则有独立菜单。非指定客户端只拦截本次订阅，不标记可疑；多个中国大陆或非中国大陆 IP 在达到阈值的当次标记并跳转；云服务器 IP 每次请求都跳转，60 分钟第 3 次或 720 分钟第 10 次标记可疑。黑名单命中可选择启用拦截。每个用户滚动 24 小时默认最多请求 30 次，第 31 次起跳转，成功和拦截都计数。可疑标记持续拦截，手动取消后停止按旧标记拦截，出现新异常时重新标记。访问记录可按订阅成功、规则拦截跳转、请求失败筛选。跳转地址默认百度，可在规则页修改。风控后台失联时是否继续下发在插件配置里设置，默认继续下发。
 
 先在风控后台添加面板，再把风控 HTTPS 地址、面板标识和采集密钥填入插件。可信代理 IP 只填写你实际使用的反代 IP；Xboard 原有的每分钟计划任务需正常运行。
 

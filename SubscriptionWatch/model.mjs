@@ -93,6 +93,7 @@ export function migrateRequestEvidence(db) {
         ["token_fingerprint", "TEXT"],
         ["content_type", "TEXT"],
         ["delivered", "INTEGER"],
+        ["review_blocked", "INTEGER"],
       ],
     ],
     [
@@ -319,6 +320,45 @@ export const setConfig = (db, key, value) =>
       "INSERT INTO config VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
     )
     .run(key, JSON.stringify(value));
+export function migrateReviewBlockedV401(db) {
+  if (getConfig(db, "reviewBlockedBackfillV401")) return;
+  transaction(db, () => {
+    db.exec(`UPDATE visits SET review_blocked=1
+      WHERE status=302 AND delivered=0 AND event_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM review_decisions d
+        WHERE d.panel=visits.panel AND d.event_id=visits.event_id AND d.denied=1)`);
+    setConfig(db, "reviewBlockedBackfillV401", true);
+  });
+}
+export function migrateUaRiskV401(db) {
+  transaction(db, () => {
+    const now = Date.now();
+    for (const risk of db.prepare("SELECT panel,uid,reasons FROM risks WHERE active=1").all()) {
+      const previous = JSON.parse(risk.reasons);
+      const reasons = previous.filter((item) => item.code !== "ua");
+      if (reasons.length === previous.length) continue;
+      db.prepare("UPDATE risks SET active=?,updated=?,reasons=? WHERE panel=? AND uid=?")
+        .run(Number(reasons.length > 0), now, JSON.stringify(reasons), risk.panel, risk.uid);
+      const email = db.prepare("SELECT email FROM subjects WHERE panel=? AND uid=?")
+        .get(risk.panel, risk.uid)?.email || "";
+      db.prepare("INSERT INTO risk_history(panel,uid,email,ts,action,reasons) VALUES(?,?,?,?,?,?)")
+        .run(risk.panel, risk.uid, email, now, "规则升级移除UA风险", JSON.stringify(reasons));
+      if (!reasons.length) {
+        db.prepare("UPDATE subjects SET dismissed=? WHERE panel=? AND uid=?")
+          .run(now, risk.panel, risk.uid);
+        db.prepare("DELETE FROM samples WHERE panel=? AND uid=?")
+          .run(risk.panel, risk.uid);
+      }
+      for (const pending of db.prepare(
+        "SELECT id,payload FROM outbox WHERE panel=? AND uid=? AND COALESCE(json_extract(payload,'$.kind'),'risk')='risk'",
+      ).all(risk.panel, risk.uid)) {
+        if (!reasons.length) db.prepare("DELETE FROM outbox WHERE id=?").run(pending.id);
+        else db.prepare("UPDATE outbox SET payload=? WHERE id=?")
+          .run(JSON.stringify({ ...JSON.parse(pending.payload), reasons }), pending.id);
+      }
+    }
+  });
+}
 export function validateRules(b) {
   b = { ...defaults, ...b };
   const r = {};

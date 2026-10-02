@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.0" />
+    <link rel="stylesheet" href="/style.css?v=4.0.1" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.0 · 独立采集 · 风险评估</small>
+        <small>v4.0.1 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
@@ -65,6 +65,7 @@
             ><label>邮箱<input name="email" /></label
             ><label>来源IP<input name="ip" /></label
             ><label>原始UA<input name="ua" /></label
+            ><label>状态<select name="result"><option value="">全部</option><option value="success">订阅成功</option><option value="redirect">规则拦截跳转</option><option value="failure">请求失败</option></select></label
             ><label>开始时间<input name="from" type="datetime-local" /></label
             ><label>结束时间<input name="to" type="datetime-local" /></label
             ><button>查询</button><button type="reset">重置</button
@@ -367,7 +368,7 @@
                 ></textarea>
               </label>
               <p>
-                新请求的完整 UA 不包含任何允许关键词时，立即标记可疑并跳转。UA 可以伪造，匹配不代表身份可信。
+                新请求的完整 UA 不包含任何允许关键词时，只拦截本次订阅并跳转，不标记为可疑用户。UA 可以伪造，匹配不代表身份可信。
               </p>
               <button type="button" id="addCommonUa">补充常见UA关键词</button>
             </fieldset>
@@ -711,7 +712,7 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.0"></script>
+    <script src="/app.js?v=4.0.1"></script>
   </body>
 </html>
 

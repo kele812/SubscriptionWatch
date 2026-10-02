@@ -35,6 +35,8 @@ import {
   migratePanelBots,
   migrateRiskV33,
   migrateRequestEvidence,
+  migrateReviewBlockedV401,
+  migrateUaRiskV401,
   defaults,
   token,
   getConfig,
@@ -125,10 +127,12 @@ export function createApp({
       migratePanelBots(db);
       migrateRiskV33(db);
       migrateRequestEvidence(db);
+      migrateReviewBlockedV401(db);
       geo = new GeoDatabase({ db, dataDir, encrypt, decrypt, fetcher });
       tg = new Telegram({ db, encrypt, decrypt, geo, fetcher });
       bans = new AccountBan({ db, encrypt, decrypt, geo, fetcher });
       migrate371(db);
+      migrateUaRiskV401(db);
       initDestinations(db);
       // Verify restored encrypted credentials before accepting the replacement.
       if (validate) {
@@ -948,6 +952,17 @@ export function createApp({
               conditions.push("ts" + op + "?");
               params.push(ts);
             }
+          const resultFilter = u.searchParams.get("result") || "";
+          const resultConditions = {
+            "": null,
+            success: "delivered=1 AND status BETWEEN 200 AND 299",
+            redirect: "review_blocked=1",
+            failure: "COALESCE(review_blocked,0)=0 AND (delivered=0 OR status>=400)",
+          };
+          if (!Object.hasOwn(resultConditions, resultFilter))
+            fail(400, "状态筛选无效");
+          if (resultConditions[resultFilter])
+            conditions.push(resultConditions[resultFilter]);
           const where = conditions.join(" AND ");
           const rows = db
             .prepare(
@@ -1237,7 +1252,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.0 ready");
+  console.log("Subscription Watch v4.0.1 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

@@ -1,6 +1,6 @@
 import { defaults } from "./model.mjs";
 import { activeBlacklistedIP, blacklistSettings } from "./blacklist.mjs";
-// Only fresh accepted events may create UA/cloud signals; maintenance never replays them.
+// Accepted events may still contribute to geographic and blacklist risk.
 export function assess(
   db,
   panel,
@@ -35,8 +35,6 @@ export function assess(
     r.dcKeywords.some((k) =>
       (e.geo.organization || "").toLowerCase().includes(k.toLowerCase()),
     );
-  const badUa = (e) =>
-    !r.uaKeywords.some((k) => e.ua.toLowerCase().includes(k.toLowerCase()));
   const success = (e) =>
     e.status >= 200 &&
     e.status < 300 &&
@@ -154,13 +152,6 @@ export function assess(
       blackHit,
       (e) =>
         !success(e) ? "请求未成功" : "未命中有效黑名单或请求早于入名单时间",
-    ],
-    [
-      r.uaEnabled,
-      "ua",
-      "非指定客户端获取订阅",
-      (e) => success(e) && badUa(e),
-      (e) => (!success(e) ? "未确认返回订阅内容" : "UA 符合允许关键词"),
     ],
   ]) {
     if (!enabled) continue;

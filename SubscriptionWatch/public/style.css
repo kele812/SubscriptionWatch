@@ -357,7 +357,8 @@ header {
   flex: 1;
   min-width: 130px;
 }
-.filters input {
+.filters input,
+.filters select {
   padding: 10px;
   font-size: 13px;
 }
@@ -986,3 +987,4 @@ dialog::backdrop {
   color: #ff707e;
   border-color: #ff707e;
 }
+

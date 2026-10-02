@@ -83,6 +83,9 @@ function requestStatusText(value) {
             : "服务器处理异常")
   );
 }
+function visitStatusText(row) {
+  return row.review_blocked === 1 ? "规则拦截跳转" : requestStatusText(row.status);
+}
 function toast(text) {
   $("#toast").textContent = text;
   $("#toast").hidden = false;
@@ -255,7 +258,7 @@ function renderUserHistory(kind) {
         format(r.ts),
         `${r.ip || "—"}\n${geoText(r.geo || {})}`,
         r.ua || "（空）",
-        requestStatusText(r.status),
+        visitStatusText(r),
       ];
     if (kind === "risks")
       return [
@@ -353,7 +356,7 @@ function sourceTraceDetail(r) {
     反代已核验: r.proxy_verified,
     IP取值依据: r.ip_source,
     原始UA: r.ua,
-    状态: requestStatusText(r.status),
+    状态: visitStatusText(r),
     确认返回订阅:
       r.delivered === 1 ? "是" : r.delivered === 0 ? "否" : "旧版未核实",
     请求编号: r.event_id,
@@ -890,7 +893,7 @@ async function refresh() {
             r.delivered === 1
               ? "已确认返回订阅"
               : r.delivered === 0
-                ? requestStatusText(r.status)
+                ? visitStatusText(r)
                 : "旧版未核实",
             button("核查链路", () => detail(sourceTraceDetail(r))),
           ]),
@@ -1095,7 +1098,7 @@ async function refresh() {
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
-          `${requestStatusText(r.status)}${r.delivered === 0 ? " · 未确认返回订阅" : ""}`,
+          `${visitStatusText(r)}${r.delivered === 0 && r.review_blocked !== 1 ? " · 未确认返回订阅" : ""}`,
           button("查看", () =>
             detail({
               时间: format(r.ts),
@@ -1110,7 +1113,7 @@ async function refresh() {
               通过反代名称: r.proxy_name,
               反代已核验: r.proxy_verified,
               IP取值依据: r.ip_source,
-              状态: requestStatusText(r.status),
+              状态: visitStatusText(r),
               耗时毫秒: r.ms,
               请求编号: r.event_id,
               订阅指纹: r.token_fingerprint,
@@ -1287,7 +1290,7 @@ async function refresh() {
         " · 自动封禁：" +
         (config.enabled ? "开启" : "关闭") +
         (config.canUnban ? " · 支持手动解封" : " · 手动解封需v3.5插件") +
-        "。自动封禁仅依据新版插件确认返回内容的请求：最近24小时内须有至少4个不同IP触发地域规则，或至少2个不同IP并命中2类规则；单次异常UA或云IP只标记可疑，不自动封禁。";
+        "。自动封禁仅依据新版插件确认返回内容的请求：最近24小时内须有至少4个不同IP触发地域规则，或至少2个不同IP并命中2类规则。非指定UA只拦截本次订阅，不标记可疑；单次云服务器IP请求也只拦截。";
       table(
         "#banHistory",
         ["用户ID", "操作", "状态", "说明", "时间"],
@@ -1786,7 +1789,7 @@ function updateRuleConditions(dirty = true) {
     v = (n) => f.elements[n].value,
     on = (n) => f.elements[n].checked;
   const items = [
-    ["uaEnabled", "新请求的UA为空或不匹配允许关键词，立即标记可疑并跳转"],
+    ["uaEnabled", "新请求的UA为空或不匹配允许关键词，只拦截本次订阅并跳转，不标记可疑"],
     [
       "chinaEnabled",
       `${v("cnShortMinutes")}分钟出现第${Number(v("cnShortLimit")) + 1}个或${v("cnLongMinutes")}分钟出现第${Number(v("cnLongLimit")) + 1}个不同中国大陆IP，当次标记并跳转`,

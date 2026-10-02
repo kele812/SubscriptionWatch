@@ -52,7 +52,7 @@ function reason(code, label, rows, threshold, minutes, now, count = rows.length)
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.0",
+    ruleVersion: "4.0.1",
   };
 }
 
@@ -114,8 +114,6 @@ function decide(db, panel, event, geo, now) {
   if (rules.uaEnabled && !rules.uaKeywords.some((word) =>
     event.ua.toLowerCase().includes(word.toLowerCase()))) {
     codes.push("ua");
-    markRisk(db, panel, event,
-      reason("ua", "非指定客户端获取订阅", [{ ...event, geo: place, ts: now }], 1, null, now), now);
   }
   if (rules.dcEnabled && rules.dcKeywords.some((word) =>
     (place.organization || "").toLowerCase().includes(word.toLowerCase()))) {
