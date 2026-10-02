@@ -52,7 +52,7 @@ function reason(code, label, rows, threshold, minutes, now, count = rows.length)
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "3.10.0",
+    ruleVersion: "4.0.0",
   };
 }
 
