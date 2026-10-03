@@ -1,4 +1,5 @@
 import { assess } from "./assessment.mjs";
+import { isWhitelisted } from "./whitelist.mjs";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { riskLevel, evaluate, resolveRisk } from "./risk.mjs";
 import {
@@ -191,7 +192,7 @@ export class AccountBan {
       const location = this.geo?.lookup(row.ip) || {},
         org = (location.organization || "").toLowerCase();
       if (
-        rules.ipWhitelist?.includes(row.ip) ||
+        isWhitelisted(rules, row.ip) ||
         (rules.cloudflareExempt && /\bcloudflare\b/i.test(org))
       )
         continue;

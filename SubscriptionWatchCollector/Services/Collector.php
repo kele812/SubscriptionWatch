@@ -74,11 +74,6 @@ class Collector
         $request->attributes->set(self::MARKER, ['collector' => $this, 'event' => $event, 'start' => microtime(true)]);
     }
 
-    public function failOpen(): bool
-    {
-        return filter_var($this->options['review_fail_open'] ?? true, FILTER_VALIDATE_BOOLEAN);
-    }
-
     public function review($request): array
     {
         $capture = $request->attributes->get(self::MARKER);
@@ -96,7 +91,7 @@ class Collector
         $timestamp = (string) time();
         $secret = (string) $this->options['secret'];
         $signature = hash_hmac('sha256', $timestamp . "\n" . $body, $secret);
-        $response = Http::connectTimeout(1)->timeout(2)->withoutRedirecting()
+        $response = Http::connectTimeout(1)->timeout(4)->withoutRedirecting()
             ->withHeaders([
                 'X-Watch-Timestamp' => $timestamp,
                 'X-Watch-Signature' => $signature,
@@ -160,7 +155,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '4.0.3', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '4.0.4', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Http::connectTimeout(1)->timeout(3)->withoutRedirecting()

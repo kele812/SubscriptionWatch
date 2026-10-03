@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { defaults, getConfig, setConfig } from "./model.mjs";
+import { isWhitelisted } from "./whitelist.mjs";
 
 const DAY = 86400000;
 export const PERMANENT = Number.MAX_SAFE_INTEGER;
@@ -173,7 +174,7 @@ export function importBlacklistHistory(db, before = 0, now = Date.now(), geo) {
           e.included !== true ||
           e.geo?.countryCode !== "CN" ||
           !(e.status >= 200 && e.status < 300) ||
-          rules.ipWhitelist.includes(e.ip)
+          isWhitelisted(rules, e.ip)
         )
           continue;
         const g = {

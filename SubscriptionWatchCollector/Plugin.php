@@ -25,8 +25,8 @@ class Plugin extends AbstractPlugin
             } catch (\UnexpectedValueException $e) {
                 $decision = ['allow' => false, 'redirect' => null];
             } catch (\Throwable $e) {
-                // Only connectivity and server failures use the configured fail mode.
-                $decision = ['allow' => $collector->failOpen(), 'redirect' => null];
+                // Never deliver a subscription when risk review is unavailable.
+                $decision = ['allow' => false, 'redirect' => null];
             }
             if (!$decision['allow']) {
                 if ($decision['redirect'])
@@ -55,4 +55,3 @@ class Plugin extends AbstractPlugin
         })->everyMinute()->name('subscription-watch-collector');
     }
 }
-

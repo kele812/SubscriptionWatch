@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
+import { domainToASCII } from "node:url";
 
 export const defaults = {
   schema: 3100,
@@ -52,9 +53,18 @@ export const defaults = {
     "华为",
   ],
   cloudflareExempt: false,
+  mainlandOnly: false,
   ipWhitelist: [],
+  ipWhitelistNotes: {},
   retentionDays: 0,
 };
+
+function normalizeWhitelistEntry(entry) {
+  const value = entry.trim();
+  return isIP(value) === 6
+    ? new URL(`http://[${value}]/`).hostname.slice(1, -1)
+    : isIP(value) ? value : domainToASCII(value).toLowerCase();
+}
 export function migrateRiskV33(db) {
   if (
     !db
@@ -383,6 +393,7 @@ export function validateRules(b) {
     "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
+    "mainlandOnly",
     "reviewBlockBlacklist",
   ]) {
     if (typeof b[k] !== "boolean") throw Error("规则开关格式错误");
@@ -409,18 +420,29 @@ export function validateRules(b) {
   if (
     !Array.isArray(b.ipWhitelist) ||
     b.ipWhitelist.length > 1000 ||
-    b.ipWhitelist.some((ip) => typeof ip !== "string" || !isIP(ip.trim()))
+    b.ipWhitelist.some((ip) => {
+      if (typeof ip !== "string") return true;
+      const entry = ip.trim();
+      if (isIP(entry)) return false;
+      const domain = domainToASCII(entry);
+      return !domain || domain.length > 253 || !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(domain);
+    })
   )
-    throw Error("IP白名单须为有效IPv4或IPv6地址，每行一个，最多1000个");
+    throw Error("白名单须为有效IP或完整域名，每行一个，最多1000个");
   r.ipWhitelist = [
     ...new Set(
-      b.ipWhitelist.map((ip) =>
-        isIP(ip.trim()) === 6
-          ? new URL(`http://[${ip.trim()}]/`).hostname.slice(1, -1)
-          : ip.trim(),
-      ),
+      b.ipWhitelist.map(normalizeWhitelistEntry),
     ),
   ];
+  if (b.ipWhitelistNotes === null || typeof b.ipWhitelistNotes !== "object" || Array.isArray(b.ipWhitelistNotes))
+    throw Error("白名单备注格式错误");
+  r.ipWhitelistNotes = {};
+  for (const [entry, note] of Object.entries(b.ipWhitelistNotes)) {
+    const normalized = normalizeWhitelistEntry(entry);
+    if (!r.ipWhitelist.includes(normalized) || typeof note !== "string" || note.length > 120)
+      throw Error("白名单备注须对应已填写的IP或域名，最多120字");
+    if (note.trim()) r.ipWhitelistNotes[normalized] = note.trim();
+  }
   if (
     !Array.isArray(b.dcKeywords) ||
     b.dcKeywords.length > 100 ||

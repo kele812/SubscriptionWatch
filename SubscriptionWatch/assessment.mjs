@@ -1,5 +1,6 @@
 import { defaults } from "./model.mjs";
 import { activeBlacklistedIP, blacklistSettings } from "./blacklist.mjs";
+import { isWhitelisted } from "./whitelist.mjs";
 // Accepted events may still contribute to geographic and blacklist risk.
 export function assess(
   db,
@@ -26,7 +27,7 @@ export function assess(
   };
   const decorate = (e) => ({ ...e, geo: geo?.lookup(e.ip) || {} });
   const exempt = (e) =>
-    r.ipWhitelist.includes(e.ip)
+    isWhitelisted(r, e.ip)
       ? "IP 白名单"
       : r.cloudflareExempt && /\bcloudflare\b/i.test(e.geo.organization || "")
         ? "Cloudflare 豁免"
@@ -228,4 +229,3 @@ export function assess(
   }
   return reasons;
 }
-

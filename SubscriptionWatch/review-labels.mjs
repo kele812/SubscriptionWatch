@@ -3,6 +3,7 @@ const labels = {
   ua: "非指定客户端获取订阅",
   cloud: "云服务器 IP 获取订阅",
   blacklist: "黑名单 IP 获取订阅",
+  "mainland-only": "来源 IP 不在中国大陆或白名单",
   cn60: "多个中国大陆 IP 获取订阅（短窗口）",
   cn720: "多个中国大陆 IP 获取订阅（长窗口）",
   foreign60: "多个非中国大陆 IP 获取订阅（短窗口）",

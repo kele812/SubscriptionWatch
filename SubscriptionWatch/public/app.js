@@ -770,9 +770,12 @@ function fillRules() {
     name: p.name,
     notify: p.notify,
   })) {
+    if (k === "ipWhitelistNotes") continue;
     const el = f.elements[k] || $("#panelForm").elements[k];
     if (!el) continue;
     if (el.type === "checkbox") el.checked = !!v;
+    else if (k === "ipWhitelist")
+      el.value = v.map((entry) => entry + (p.rules.ipWhitelistNotes?.[entry] ? ` # ${p.rules.ipWhitelistNotes[entry]}` : "")).join("\n");
     else el.value = Array.isArray(v) ? v.join("\n") : v;
   }
   updateRuleConditions(false);
@@ -1578,14 +1581,25 @@ function readRuleForm() {
     "foreignEnabled",
     "dcEnabled",
     "cloudflareExempt",
+    "mainlandOnly",
     "reviewBlockBlacklist",
   ])
     rules[k] = f.elements[k].checked;
-  for (const k of ["uaKeywords", "dcKeywords", "ipWhitelist"])
+  for (const k of ["uaKeywords", "dcKeywords"])
     rules[k] = f.elements[k].value
       .split(/\r?\n/)
       .map((x) => x.trim())
       .filter(Boolean);
+  rules.ipWhitelist = [];
+  rules.ipWhitelistNotes = {};
+  for (const line of f.elements.ipWhitelist.value.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const split = line.indexOf("#");
+    const entry = (split < 0 ? line : line.slice(0, split)).trim();
+    const note = split < 0 ? "" : line.slice(split + 1).trim();
+    rules.ipWhitelist.push(entry);
+    if (note) rules.ipWhitelistNotes[entry] = note;
+  }
   for (const prefix of ["cn", "foreign", "cloud"])
     for (const w of ["Short", "Long"])
       for (const end of ["Minutes", "Limit"]) {

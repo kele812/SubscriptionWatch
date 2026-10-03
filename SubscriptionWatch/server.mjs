@@ -46,6 +46,7 @@ import {
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
+import { refreshAllWhitelists, refreshWhitelist } from "./whitelist.mjs";
 import { describeReviewCodes } from "./review-labels.mjs";
 import { evaluate, resolveRisk, riskRows, riskLevel } from "./risk.mjs";
 import {
@@ -173,6 +174,7 @@ export function createApp({
     }
   };
   loadState();
+  refreshAllWhitelists(db).catch(() => console.error("whitelist DNS refresh failed"));
   const sessions = new Map(),
     attempts = new Map();
   const initialized = () =>
@@ -297,6 +299,10 @@ export function createApp({
           tg.tick().catch(() => {});
           bans.tick().catch(() => {});
         }, 3000),
+        setInterval(() => {
+          if (!restoring)
+            refreshAllWhitelists(db).catch(() => console.error("whitelist DNS refresh failed"));
+        }, 60000),
       ]
     : [];
   timers.forEach((t) => t.unref());
@@ -900,6 +906,7 @@ export function createApp({
           )
             fail(400, "面板设置格式错误");
           const rules = validateRules(b.rules);
+          await refreshWhitelist(rules);
           transaction(db, () => {
             db.prepare(
               "UPDATE panels SET name=?,notify=?,rules=? WHERE id=?",
@@ -1270,7 +1277,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.3 ready");
+  console.log("Subscription Watch v4.0.4 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { defaults, transaction } from "./model.mjs";
 import { describeReviewCodes } from "./review-labels.mjs";
+import { isWhitelisted } from "./whitelist.mjs";
 import {
   activeBlacklistedIP,
   blacklistSettings,
@@ -53,7 +54,7 @@ function reason(code, label, rows, threshold, minutes, now, count = rows.length)
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.3",
+    ruleVersion: "4.0.4",
   };
 }
 
@@ -68,7 +69,7 @@ function regionRows(db, panel, event, geo, rules, subject, now, minutes, match) 
   const latest = new Map();
   for (const row of [...samples, ...reviewed, { ip: event.ip, ua: event.ua, ts: now }]) {
     const place = geo?.lookup(row.ip) || {};
-    if (rules.ipWhitelist.includes(row.ip) ||
+    if (isWhitelisted(rules, row.ip) ||
         (rules.cloudflareExempt && /\bcloudflare\b/i.test(place.organization || "")) ||
         !match(place.countryCode || "")) continue;
     if (!latest.has(row.ip) || latest.get(row.ip).ts < row.ts)
@@ -103,12 +104,17 @@ function decide(db, panel, event, geo, now) {
   const codes = [];
   if (requestCount(db, panel, event, now) >= rules.dailyLimit)
     codes.push("daily-limit");
+  const place = geo?.lookup(event.ip) || {};
+  const allowlisted = isWhitelisted(rules, event.ip, now);
+  if (rules.mainlandOnly && !allowlisted && place.countryCode !== "CN") {
+    codes.push("mainland-only");
+    return { codes, redirect: rules.reviewRedirectUrl };
+  }
   if (subject?.white) return { codes, redirect: rules.reviewRedirectUrl };
   const active = db.prepare("SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1")
     .get(panel.id, event.user_id);
   if (active) codes.push("active-risk");
-  const place = geo?.lookup(event.ip) || {};
-  const exempt = rules.ipWhitelist.includes(event.ip) ||
+  const exempt = allowlisted ||
     (rules.cloudflareExempt && /\bcloudflare\b/i.test(place.organization || ""));
   if (exempt || active) return {
     codes,

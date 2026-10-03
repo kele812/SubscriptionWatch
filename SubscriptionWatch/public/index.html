@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.3" />
+    <link rel="stylesheet" href="/style.css?v=4.0.4" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.3 · 独立采集 · 风险评估</small>
+        <small>v4.0.4 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
@@ -357,7 +357,7 @@
             <p>
               新请求先由风控机审核。命中拦截时只跳转本次订阅；被标记为可疑的用户持续拦截，直到手动取消。取消后有新异常仍会重新标记。IP归属地判断依赖已安装的数据库。
             </p>
-            <p>失联时是否继续下发在 Xboard 采集插件中设置。用户白名单不触发风险标记；每日次数上限仍对每个用户生效。</p>
+            <p>风控机失联或审核超时时，本次订阅拒绝下发。用户白名单不触发风险标记；每日次数上限仍对每个用户生效。</p>
             <fieldset class="rule-card">
               <legend>01 · 非指定客户端获取订阅</legend>
               <label><input type="checkbox" name="uaEnabled" />启用UA检查</label
@@ -506,12 +506,17 @@
             <fieldset class="rule-card">
               <legend>拦截后跳转</legend>
               <label>跳转网址<input name="reviewRedirectUrl" type="url" maxlength="2048" required placeholder="https://www.baidu.com/" /></label>
-              <p>所有正常审核拦截统一返回302跳转，默认百度。修改后只影响新请求；风控机失联且插件选择拒绝时仍返回403。</p>
+              <p>所有正常审核拦截统一返回302跳转，默认百度。修改后只影响新请求；风控机失联或审核超时时返回403。</p>
+            </fieldset>
+            <fieldset class="rule-card">
+              <legend>仅允许中国大陆或白名单 IP 获取订阅</legend>
+              <label><input type="checkbox" name="mainlandOnly" />开启限制</label>
+              <p>开启后，来源 IP 不属于中国大陆且未命中下方白名单时，本次订阅直接跳转，不标记可疑用户。中国大陆 IP 仍需通过其他规则；归属地未知按非中国大陆处理。即使用户在用户白名单或来源属于 Cloudflare，也不能绕过此限制。</p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>不检查的访问来源</legend>
               <label
-                >IP白名单（每行一个完整IP）<textarea
+                >IP／域名白名单（每行一个；可在 # 后写备注）<textarea
                   name="ipWhitelist"
                   rows="5"
                 ></textarea></label
@@ -522,7 +527,7 @@
                 />不检查来自Cloudflare的订阅请求</label
               >
               <p class="evidence-exempt">
-                匹配IP白名单或已开启的Cloudflare组织名豁免后，不触发UA、地域、云服务器和黑名单规则；请求仍记录，并计入每日请求上限。
+                例如：1.2.3.4 # 自有节点，或 vpn.example.com # 备用出口。域名由风控机定时解析 IPv4／IPv6；解析失败时不匹配白名单。白名单命中后免于UA、地域、云服务器和黑名单规则，仍计入每日请求上限。Cloudflare 豁免不能绕过上方的中国大陆限制。
               </p>
             </fieldset>
             <p id="rulesDirty" role="status">规则已保存</p>
@@ -712,6 +717,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.3"></script>
+    <script src="/app.js?v=4.0.4"></script>
   </body>
 </html>
