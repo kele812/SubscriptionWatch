@@ -54,7 +54,7 @@ function reason(code, label, rows, threshold, minutes, now, count = rows.length)
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.5",
+    ruleVersion: "4.0.6",
   };
 }
 
@@ -87,26 +87,27 @@ function cloudRows(db, panel, event, subject, geo, now, minutes) {
     .map((row) => ({ ...row, geo: geo?.lookup(row.ip) || {} }));
 }
 
-function requestCount(db, panel, event, now) {
+function requestCount(db, panel, event, now, resetAt = 0) {
+  const since = Math.max(now - DAY, resetAt);
   const reviewed = db.prepare(
     "SELECT COUNT(*) total FROM review_decisions WHERE panel=? AND uid=? AND ts>? AND ts<=? AND (delivered=1 OR enforced=1 OR (delivered IS NULL AND enforced IS NULL))",
-  ).get(panel.id, event.user_id, now - DAY, now).total;
+  ).get(panel.id, event.user_id, since, now).total;
   const legacy = db.prepare(
     "SELECT COUNT(*) total FROM visits v WHERE v.panel=? AND v.uid=? AND v.ts>? AND v.ts<=? AND (v.delivered=1 OR v.status IN (302,403)) AND (v.event_id IS NULL OR NOT EXISTS (SELECT 1 FROM review_decisions d WHERE d.panel=v.panel AND d.event_id=v.event_id))",
-  ).get(panel.id, event.user_id, now - DAY, now).total;
+  ).get(panel.id, event.user_id, since, now).total;
   return reviewed + legacy;
 }
 
 function decide(db, panel, event, geo, now) {
   const rules = { ...defaults, ...JSON.parse(panel.rules) };
-  const subject = db.prepare("SELECT white,dismissed FROM subjects WHERE panel=? AND uid=?")
+  const subject = db.prepare("SELECT white,dismissed,daily_reset_at FROM subjects WHERE panel=? AND uid=?")
     .get(panel.id, event.user_id);
   const allowlisted = isWhitelisted(rules, event.ip, now);
   // Explicit user and source-IP exemptions take precedence over every risk rule.
   if (subject?.white || allowlisted)
     return { codes: [], redirect: rules.reviewRedirectUrl };
   const codes = [];
-  if (requestCount(db, panel, event, now) >= rules.dailyLimit)
+  if (requestCount(db, panel, event, now, subject?.daily_reset_at) >= rules.dailyLimit)
     codes.push("daily-limit");
   const place = geo?.lookup(event.ip) || {};
   if (rules.mainlandOnly && place.countryCode !== "CN") {

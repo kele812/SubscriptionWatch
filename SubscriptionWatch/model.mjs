@@ -271,7 +271,7 @@ export function initialize(db, encrypt) {
     CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY,value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS accounts(id INTEGER PRIMARY KEY,username TEXT UNIQUE COLLATE NOCASE NOT NULL,password_hash TEXT NOT NULL,admin INTEGER DEFAULT 0,disabled INTEGER DEFAULT 0,created INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS panels(id INTEGER PRIMARY KEY,owner INTEGER NOT NULL REFERENCES accounts(id),name TEXT NOT NULL,public_id TEXT UNIQUE NOT NULL,secret TEXT NOT NULL,rules TEXT NOT NULL,notify INTEGER DEFAULT 1,cleared_at INTEGER DEFAULT 0,last_seen INTEGER,pending INTEGER DEFAULT 0,dropped INTEGER DEFAULT 0,expired INTEGER DEFAULT 0,version TEXT,legacy INTEGER DEFAULT 0);
-    CREATE TABLE IF NOT EXISTS subjects(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT NOT NULL,white INTEGER DEFAULT 0,dismissed INTEGER DEFAULT 0,PRIMARY KEY(panel,uid));
+    CREATE TABLE IF NOT EXISTS subjects(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT NOT NULL,white INTEGER DEFAULT 0,dismissed INTEGER DEFAULT 0,daily_reset_at INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(panel,uid));
     CREATE TABLE IF NOT EXISTS visits(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,ts INTEGER,uid INTEGER,email TEXT,ip TEXT,ua TEXT,peer_ip TEXT,ip_source TEXT,proxy_ip TEXT,proxy_name TEXT,proxy_verified INTEGER,status INTEGER,ms INTEGER,bytes INTEGER);
     CREATE INDEX IF NOT EXISTS visit_subject ON visits(panel,uid,ts);
     CREATE INDEX IF NOT EXISTS visit_time ON visits(panel,ts);
@@ -292,6 +292,8 @@ export function initialize(db, encrypt) {
     CREATE TABLE IF NOT EXISTS telegram(account INTEGER PRIMARY KEY REFERENCES accounts(id),token TEXT,bot_id TEXT UNIQUE,bot_name TEXT,chat TEXT,bind_hash TEXT,bind_until INTEGER,offset INTEGER DEFAULT 0,selected INTEGER,error TEXT);
     CREATE TABLE IF NOT EXISTS tg_confirm(code TEXT PRIMARY KEY,account INTEGER,panel INTEGER,uid INTEGER,until INTEGER);
     CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY,account INTEGER REFERENCES accounts(id),panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,payload TEXT,created INTEGER,tries INTEGER DEFAULT 0,next_try INTEGER DEFAULT 0);`);
+  if (!db.prepare("PRAGMA table_info(subjects)").all().some((column) => column.name === "daily_reset_at"))
+    db.exec("ALTER TABLE subjects ADD COLUMN daily_reset_at INTEGER NOT NULL DEFAULT 0");
   // One transaction makes a interrupted legacy migration safe to retry.
   if (!getConfig(db, "migrated"))
     transaction(db, () => {

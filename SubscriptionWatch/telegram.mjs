@@ -148,12 +148,12 @@ export class Telegram {
           .get(confirm.panel, bot.account);
         if (p)
           transaction(this.db, () => {
-            resolveRisk(this.db, p.id, confirm.uid);
+            resolveRisk(this.db, p.id, confirm.uid, { resetDaily: true });
             this.db.prepare("DELETE FROM tg_confirm WHERE code=?").run(code);
           });
         await this.call(secret, "answerCallbackQuery", {
           callback_query_id: update.callback_query.id,
-          text: p ? "已取消风险，旧记录不再触发" : "面板已不存在",
+          text: p ? "已取消风险，每日次数从零重新计算" : "面板已不存在",
         });
       } else
         await this.call(secret, "answerCallbackQuery", {

@@ -95,7 +95,7 @@ export function resolveRisk(
   db,
   panel,
   uid,
-  { remove = false, now = Date.now() } = {},
+  { remove = false, resetDaily = false, now = Date.now() } = {},
 ) {
   const s = db
     .prepare("SELECT * FROM subjects WHERE panel=? AND uid=?")
@@ -108,11 +108,8 @@ export function resolveRisk(
     panel,
     uid,
   );
-  db.prepare("UPDATE subjects SET dismissed=? WHERE panel=? AND uid=?").run(
-    now,
-    panel,
-    uid,
-  );
+  db.prepare("UPDATE subjects SET dismissed=?,daily_reset_at=CASE WHEN ? THEN ? ELSE daily_reset_at END WHERE panel=? AND uid=?")
+    .run(now, Number(resetDaily), now, panel, uid);
   const risk = db
     .prepare("SELECT * FROM risks WHERE panel=? AND uid=?")
     .get(panel, uid);

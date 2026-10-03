@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.5" />
+    <link rel="stylesheet" href="/style.css?v=4.0.6" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.5 · 独立采集 · 风险评估</small>
+        <small>v4.0.6 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
@@ -355,7 +355,7 @@
           <form id="rulesForm" class="settings-form">
             <h2>订阅审核与可疑用户规则</h2>
             <p>
-              新请求先由风控机审核。命中拦截时只跳转本次订阅；被标记为可疑的用户持续拦截，直到手动取消。取消后有新异常仍会重新标记。IP归属地判断依赖已安装的数据库。
+              新请求先由风控机审核。命中拦截时只跳转本次订阅；被标记为可疑的用户持续拦截，直到手动取消。手动取消后，该用户的每日订阅次数从零重新计算，历史访问仍保留；有新异常仍会重新标记。IP归属地判断依赖已安装的数据库。
             </p>
             <p>用户白名单和来源 IP／域名白名单命中后，不受订阅风控规则限制，但仍记录访问。风控机失联或审核超时时，一律拒绝本次订阅。</p>
             <fieldset class="rule-card">
@@ -501,7 +501,7 @@
               <label>同一用户最近滚动24小时最多请求次数
                 <input name="dailyLimit" type="number" min="1" max="10000" required />
               </label>
-              <p>默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。</p>
+              <p>默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。手动取消可疑标记后，此用户从零重新计数，旧访问记录不删除。</p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>拦截后跳转</legend>
@@ -717,6 +717,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.5"></script>
+    <script src="/app.js?v=4.0.6"></script>
   </body>
 </html>

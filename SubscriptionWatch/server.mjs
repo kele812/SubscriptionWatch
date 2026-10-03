@@ -1156,6 +1156,7 @@ export function createApp({
           transaction(db, () =>
             resolveRisk(db, id, Number(b.uid), {
               remove: action === "risk-delete",
+              resetDaily: true,
             }),
           );
           return json(res, 200, { ok: true });
@@ -1174,7 +1175,7 @@ export function createApp({
               .all(id, ...uids);
             if (found.length !== uids.length)
               fail(400, "所选可疑用户已变化，请刷新后重试");
-            for (const user of found) resolveRisk(db, id, user.uid);
+            for (const user of found) resolveRisk(db, id, user.uid, { resetDaily: true });
             return found.length;
           });
           return json(res, 200, { ok: true, count });
@@ -1277,7 +1278,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.5 ready");
+  console.log("Subscription Watch v4.0.6 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

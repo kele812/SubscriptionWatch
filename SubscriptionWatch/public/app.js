@@ -1160,7 +1160,7 @@ async function refresh() {
             button("历史记录", () => openUserHistory(id, r.uid, r.email)),
             riskCollectionAction(id, r, collectingUsers.has(r.uid)),
             button("取消风险", () =>
-              ask("取消风险", "旧记录不重复触发，新增异常仍可标记。", [], () =>
+              ask("取消风险", "该用户的每日订阅次数将从零重新计算，历史记录保留；新增异常仍可标记。", [], () =>
                 api(`/api/panels/${id}/resolve`, { uid: r.uid }),
               ),
             ),
@@ -1451,7 +1451,7 @@ $("#riskBulkResolve").onclick = () => {
   if (!uids.length) return;
   ask(
     `取消所选 ${uids.length} 人的风险标记`,
-    "旧记录不再触发，后续新增异常仍会重新标记；不会自动解封已封禁账号。",
+    "所选用户的每日订阅次数将从零重新计算，历史记录保留；后续新增异常仍会重新标记。不会自动解封已封禁账号。",
     [],
     async () => {
       await api(endpoint("risks/bulk-resolve"), { uids });
