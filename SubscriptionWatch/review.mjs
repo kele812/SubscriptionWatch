@@ -99,7 +99,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.8",
+    ruleVersion: "4.0.9",
   };
 }
 
@@ -162,19 +162,27 @@ function cloudRows(db, panel, event, subject, geo, now, minutes) {
   }));
 }
 
-export function requestCount(db, panelId, uid, now, resetAt = 0) {
+export function requestCounts(db, panelId, uid, now, resetAt = 0) {
   const since = Math.max(now - DAY, resetAt);
   const reviewed = db
     .prepare(
-      "SELECT COUNT(*) total FROM review_decisions WHERE panel=? AND uid=? AND ts>? AND ts<=? AND (delivered=1 OR enforced=1 OR (delivered IS NULL AND enforced IS NULL))",
+      "SELECT COUNT(*) total, COALESCE(SUM(ip_whitelisted=1),0) ipWhitelist, COALESCE(SUM(ip_whitelisted IS NULL),0) unclassified FROM review_decisions WHERE panel=? AND uid=? AND ts>? AND ts<=? AND (delivered=1 OR enforced=1 OR (delivered IS NULL AND enforced IS NULL))",
     )
-    .get(panelId, uid, since, now).total;
+    .get(panelId, uid, since, now);
   const legacy = db
     .prepare(
       "SELECT COUNT(*) total FROM visits v WHERE v.panel=? AND v.uid=? AND v.ts>? AND v.ts<=? AND (v.delivered=1 OR v.status IN (302,403)) AND (v.event_id IS NULL OR NOT EXISTS (SELECT 1 FROM review_decisions d WHERE d.panel=v.panel AND d.event_id=v.event_id))",
     )
     .get(panelId, uid, since, now).total;
-  return reviewed + legacy;
+  return {
+    total: reviewed.total + legacy,
+    ipWhitelist: reviewed.ipWhitelist,
+    unclassified: reviewed.unclassified + legacy,
+  };
+}
+
+export function requestCount(db, panelId, uid, now, resetAt = 0) {
+  return requestCounts(db, panelId, uid, now, resetAt).total;
 }
 
 function decide(db, panel, event, geo, now) {
@@ -187,7 +195,11 @@ function decide(db, panel, event, geo, now) {
   const allowlisted = isWhitelisted(rules, event.ip, now);
   // Explicit user and source-IP exemptions take precedence over every risk rule.
   if (subject?.white || allowlisted)
-    return { codes: [], redirect: rules.reviewRedirectUrl };
+    return {
+      codes: [],
+      redirect: rules.reviewRedirectUrl,
+      ipWhitelisted: allowlisted,
+    };
   const codes = [];
   if (
     requestCount(db, panel.id, event.user_id, now, subject?.daily_reset_at) >=
@@ -399,7 +411,7 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       result.activeReasons,
     );
     db.prepare(
-      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels,ip_whitelisted) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
     ).run(
       panel.id,
       event.event_id,
@@ -411,6 +423,7 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       Number(result.codes.length > 0),
       JSON.stringify(result.codes),
       JSON.stringify(reasonLabels),
+      Number(!!result.ipWhitelisted),
     );
     return {
       allow: result.codes.length === 0,

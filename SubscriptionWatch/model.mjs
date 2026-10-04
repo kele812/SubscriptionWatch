@@ -63,7 +63,9 @@ function normalizeWhitelistEntry(entry) {
   const value = entry.trim();
   return isIP(value) === 6
     ? new URL(`http://[${value}]/`).hostname.slice(1, -1)
-    : isIP(value) ? value : domainToASCII(value).toLowerCase();
+    : isIP(value)
+      ? value
+      : domainToASCII(value).toLowerCase();
 }
 export function migrateRiskV33(db) {
   if (
@@ -135,9 +137,30 @@ export function migrateRequestEvidence(db) {
       if (!existing.has(name))
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
   }
-  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='review_decisions'").get() &&
-      !db.prepare("PRAGMA table_info(review_decisions)").all().some((column) => column.name === "reason_labels"))
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='review_decisions'",
+      )
+      .get() &&
+    !db
+      .prepare("PRAGMA table_info(review_decisions)")
+      .all()
+      .some((column) => column.name === "reason_labels")
+  )
     db.exec("ALTER TABLE review_decisions ADD COLUMN reason_labels TEXT");
+  if (
+    db
+      .prepare(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='review_decisions'",
+      )
+      .get() &&
+    !db
+      .prepare("PRAGMA table_info(review_decisions)")
+      .all()
+      .some((column) => column.name === "ip_whitelisted")
+  )
+    db.exec("ALTER TABLE review_decisions ADD COLUMN ip_whitelisted INTEGER");
   db.exec("CREATE INDEX IF NOT EXISTS visit_source_time ON visits(ip,ts DESC)");
   const blacklistColumns = new Set(
     db
@@ -284,7 +307,7 @@ export function initialize(db, encrypt) {
     CREATE INDEX IF NOT EXISTS ip_blacklist_expiry ON ip_blacklist(expires);
     CREATE TABLE IF NOT EXISTS risks(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,active INTEGER,started INTEGER,updated INTEGER,reasons TEXT NOT NULL,PRIMARY KEY(panel,uid));
     CREATE TABLE IF NOT EXISTS risk_history(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,email TEXT,ts INTEGER,action TEXT,reasons TEXT);
-    CREATE TABLE IF NOT EXISTS review_decisions(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,event_id TEXT NOT NULL,uid INTEGER NOT NULL,email TEXT NOT NULL,ip TEXT NOT NULL,ua TEXT NOT NULL,ts INTEGER NOT NULL,denied INTEGER NOT NULL,enforced INTEGER,delivered INTEGER,codes TEXT NOT NULL,PRIMARY KEY(panel,event_id));
+    CREATE TABLE IF NOT EXISTS review_decisions(panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,event_id TEXT NOT NULL,uid INTEGER NOT NULL,email TEXT NOT NULL,ip TEXT NOT NULL,ua TEXT NOT NULL,ts INTEGER NOT NULL,denied INTEGER NOT NULL,enforced INTEGER,delivered INTEGER,codes TEXT NOT NULL,ip_whitelisted INTEGER,PRIMARY KEY(panel,event_id));
     CREATE INDEX IF NOT EXISTS review_denials_user ON review_decisions(panel,uid,ts);
     CREATE INDEX IF NOT EXISTS risk_history_panel ON risk_history(panel,id);
     CREATE INDEX IF NOT EXISTS risk_history_user ON risk_history(panel,uid,id DESC);
@@ -292,8 +315,15 @@ export function initialize(db, encrypt) {
     CREATE TABLE IF NOT EXISTS telegram(account INTEGER PRIMARY KEY REFERENCES accounts(id),token TEXT,bot_id TEXT UNIQUE,bot_name TEXT,chat TEXT,bind_hash TEXT,bind_until INTEGER,offset INTEGER DEFAULT 0,selected INTEGER,error TEXT);
     CREATE TABLE IF NOT EXISTS tg_confirm(code TEXT PRIMARY KEY,account INTEGER,panel INTEGER,uid INTEGER,until INTEGER);
     CREATE TABLE IF NOT EXISTS outbox(id INTEGER PRIMARY KEY,account INTEGER REFERENCES accounts(id),panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,payload TEXT,created INTEGER,tries INTEGER DEFAULT 0,next_try INTEGER DEFAULT 0);`);
-  if (!db.prepare("PRAGMA table_info(subjects)").all().some((column) => column.name === "daily_reset_at"))
-    db.exec("ALTER TABLE subjects ADD COLUMN daily_reset_at INTEGER NOT NULL DEFAULT 0");
+  if (
+    !db
+      .prepare("PRAGMA table_info(subjects)")
+      .all()
+      .some((column) => column.name === "daily_reset_at")
+  )
+    db.exec(
+      "ALTER TABLE subjects ADD COLUMN daily_reset_at INTEGER NOT NULL DEFAULT 0",
+    );
   // One transaction makes a interrupted legacy migration safe to retry.
   if (!getConfig(db, "migrated"))
     transaction(db, () => {
@@ -349,28 +379,56 @@ export function migrateReviewBlockedV401(db) {
 export function migrateUaRiskV401(db) {
   transaction(db, () => {
     const now = Date.now();
-    for (const risk of db.prepare("SELECT panel,uid,reasons FROM risks WHERE active=1").all()) {
+    for (const risk of db
+      .prepare("SELECT panel,uid,reasons FROM risks WHERE active=1")
+      .all()) {
       const previous = JSON.parse(risk.reasons);
       const reasons = previous.filter((item) => item.code !== "ua");
       if (reasons.length === previous.length) continue;
-      db.prepare("UPDATE risks SET active=?,updated=?,reasons=? WHERE panel=? AND uid=?")
-        .run(Number(reasons.length > 0), now, JSON.stringify(reasons), risk.panel, risk.uid);
-      const email = db.prepare("SELECT email FROM subjects WHERE panel=? AND uid=?")
-        .get(risk.panel, risk.uid)?.email || "";
-      db.prepare("INSERT INTO risk_history(panel,uid,email,ts,action,reasons) VALUES(?,?,?,?,?,?)")
-        .run(risk.panel, risk.uid, email, now, "规则升级移除UA风险", JSON.stringify(reasons));
+      db.prepare(
+        "UPDATE risks SET active=?,updated=?,reasons=? WHERE panel=? AND uid=?",
+      ).run(
+        Number(reasons.length > 0),
+        now,
+        JSON.stringify(reasons),
+        risk.panel,
+        risk.uid,
+      );
+      const email =
+        db
+          .prepare("SELECT email FROM subjects WHERE panel=? AND uid=?")
+          .get(risk.panel, risk.uid)?.email || "";
+      db.prepare(
+        "INSERT INTO risk_history(panel,uid,email,ts,action,reasons) VALUES(?,?,?,?,?,?)",
+      ).run(
+        risk.panel,
+        risk.uid,
+        email,
+        now,
+        "规则升级移除UA风险",
+        JSON.stringify(reasons),
+      );
       if (!reasons.length) {
-        db.prepare("UPDATE subjects SET dismissed=? WHERE panel=? AND uid=?")
-          .run(now, risk.panel, risk.uid);
-        db.prepare("DELETE FROM samples WHERE panel=? AND uid=?")
-          .run(risk.panel, risk.uid);
+        db.prepare(
+          "UPDATE subjects SET dismissed=? WHERE panel=? AND uid=?",
+        ).run(now, risk.panel, risk.uid);
+        db.prepare("DELETE FROM samples WHERE panel=? AND uid=?").run(
+          risk.panel,
+          risk.uid,
+        );
       }
-      for (const pending of db.prepare(
-        "SELECT id,payload FROM outbox WHERE panel=? AND uid=? AND COALESCE(json_extract(payload,'$.kind'),'risk')='risk'",
-      ).all(risk.panel, risk.uid)) {
-        if (!reasons.length) db.prepare("DELETE FROM outbox WHERE id=?").run(pending.id);
-        else db.prepare("UPDATE outbox SET payload=? WHERE id=?")
-          .run(JSON.stringify({ ...JSON.parse(pending.payload), reasons }), pending.id);
+      for (const pending of db
+        .prepare(
+          "SELECT id,payload FROM outbox WHERE panel=? AND uid=? AND COALESCE(json_extract(payload,'$.kind'),'risk')='risk'",
+        )
+        .all(risk.panel, risk.uid)) {
+        if (!reasons.length)
+          db.prepare("DELETE FROM outbox WHERE id=?").run(pending.id);
+        else
+          db.prepare("UPDATE outbox SET payload=? WHERE id=?").run(
+            JSON.stringify({ ...JSON.parse(pending.payload), reasons }),
+            pending.id,
+          );
       }
     }
   });
@@ -427,21 +485,31 @@ export function validateRules(b) {
       const entry = ip.trim();
       if (isIP(entry)) return false;
       const domain = domainToASCII(entry);
-      return !domain || domain.length > 253 || !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(domain);
+      return (
+        !domain ||
+        domain.length > 253 ||
+        !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(
+          domain,
+        )
+      );
     })
   )
     throw Error("白名单须为有效IP或完整域名，每行一个，最多1000个");
-  r.ipWhitelist = [
-    ...new Set(
-      b.ipWhitelist.map(normalizeWhitelistEntry),
-    ),
-  ];
-  if (b.ipWhitelistNotes === null || typeof b.ipWhitelistNotes !== "object" || Array.isArray(b.ipWhitelistNotes))
+  r.ipWhitelist = [...new Set(b.ipWhitelist.map(normalizeWhitelistEntry))];
+  if (
+    b.ipWhitelistNotes === null ||
+    typeof b.ipWhitelistNotes !== "object" ||
+    Array.isArray(b.ipWhitelistNotes)
+  )
     throw Error("白名单备注格式错误");
   r.ipWhitelistNotes = {};
   for (const [entry, note] of Object.entries(b.ipWhitelistNotes)) {
     const normalized = normalizeWhitelistEntry(entry);
-    if (!r.ipWhitelist.includes(normalized) || typeof note !== "string" || note.length > 120)
+    if (
+      !r.ipWhitelist.includes(normalized) ||
+      typeof note !== "string" ||
+      note.length > 120
+    )
       throw Error("白名单备注须对应已填写的IP或域名，最多120字");
     if (note.trim()) r.ipWhitelistNotes[normalized] = note.trim();
   }
@@ -457,22 +525,46 @@ export function validateRules(b) {
   if (r.dcEnabled && !r.dcKeywords.length)
     throw Error("启用数据中心规则需要至少一个关键词");
   for (const suffix of ["Short", "Long"]) {
-    const minutes = b[`cloud${suffix}Minutes`], limit = b[`cloud${suffix}Limit`];
-    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080 ||
-        !Number.isInteger(limit) || limit < 1 || limit > 1000)
+    const minutes = b[`cloud${suffix}Minutes`],
+      limit = b[`cloud${suffix}Limit`];
+    if (
+      !Number.isInteger(minutes) ||
+      minutes < 1 ||
+      minutes > 10080 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 1000
+    )
       throw Error("云服务器请求次数与时间范围无效");
     r[`cloud${suffix}Minutes`] = minutes;
     r[`cloud${suffix}Limit`] = limit;
   }
-  if (!Number.isInteger(b.dailyLimit) || b.dailyLimit < 1 || b.dailyLimit > 10000)
+  if (
+    !Number.isInteger(b.dailyLimit) ||
+    b.dailyLimit < 1 ||
+    b.dailyLimit > 10000
+  )
     throw Error("24小时请求上限须为1～10000次");
   r.dailyLimit = b.dailyLimit;
-  if (typeof b.reviewRedirectUrl !== "string" || b.reviewRedirectUrl.length > 2048)
+  if (
+    typeof b.reviewRedirectUrl !== "string" ||
+    b.reviewRedirectUrl.length > 2048
+  )
     throw Error("请输入有效的跳转网址");
   let redirect;
-  try { redirect = new URL(b.reviewRedirectUrl); } catch { throw Error("请输入完整的跳转网址，例如 https://www.baidu.com/"); }
-  if (!["https:", "http:"].includes(redirect.protocol) || !redirect.hostname ||
-      redirect.username || redirect.password || redirect.hash || /[\r\n]/.test(b.reviewRedirectUrl))
+  try {
+    redirect = new URL(b.reviewRedirectUrl);
+  } catch {
+    throw Error("请输入完整的跳转网址，例如 https://www.baidu.com/");
+  }
+  if (
+    !["https:", "http:"].includes(redirect.protocol) ||
+    !redirect.hostname ||
+    redirect.username ||
+    redirect.password ||
+    redirect.hash ||
+    /[\r\n]/.test(b.reviewRedirectUrl)
+  )
     throw Error("跳转网址只能使用 HTTP 或 HTTPS，不能包含账号、密码或片段");
   r.reviewRedirectUrl = redirect.href;
   return { ...r, schema: 3100 };

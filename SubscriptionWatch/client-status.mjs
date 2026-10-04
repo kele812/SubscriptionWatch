@@ -1,5 +1,5 @@
 import { defaults, transaction } from "./model.mjs";
-import { requestCount } from "./review.mjs";
+import { requestCounts } from "./review.mjs";
 
 export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
   const ids = [
@@ -16,7 +16,7 @@ export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
     .all(panel.id, ...ids);
   return new Map(
     subjects.map((s) => {
-      const count = requestCount(db, panel.id, s.uid, now, s.daily_reset_at);
+      const counts = requestCounts(db, panel.id, s.uid, now, s.daily_reset_at);
       return [
         s.uid,
         {
@@ -24,10 +24,12 @@ export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
           verified: !!s.verified,
           white: !!s.white,
           suspicious: !!s.suspicious,
-          dailyCount: count,
+          dailyCount: counts.total,
+          ipWhitelistCount: counts.ipWhitelist,
+          unclassifiedCount: counts.unclassified,
           dailyLimit,
-          dailyLimitReached: count >= dailyLimit,
-          nextRequestNumber: count + 1,
+          dailyLimitReached: counts.total >= dailyLimit,
+          nextRequestNumber: counts.total + 1,
         },
       ];
     }),
@@ -70,15 +72,17 @@ export function clientStatusRows(
       .get(...args).n,
     dailyLimit: limitCount,
     rows: subjects.map((s) => {
-      const count = requestCount(db, panel.id, s.uid, now, s.daily_reset_at);
+      const counts = requestCounts(db, panel.id, s.uid, now, s.daily_reset_at);
       return {
         uid: s.uid,
         email: s.email,
         white: !!s.white,
         suspicious: !!s.suspicious,
-        dailyCount: count,
-        dailyLimitReached: count >= limitCount,
-        nextRequestNumber: count + 1,
+        dailyCount: counts.total,
+        ipWhitelistCount: counts.ipWhitelist,
+        unclassifiedCount: counts.unclassified,
+        dailyLimitReached: counts.total >= limitCount,
+        nextRequestNumber: counts.total + 1,
         lastRequestAt: Math.max(
           lastReview.get(panel.id, s.uid).ts || 0,
           lastVisit.get(panel.id, s.uid).ts || 0,

@@ -104,7 +104,13 @@ function currentStatusLabels(user) {
 }
 function currentStatusText(user) {
   if (!user) return "当前状态未记录";
-  return `${currentStatusLabels(user).join("、")} · 24小时已计入 ${user.dailyCount}/${user.dailyLimit} 次，下次第 ${user.nextRequestNumber} 次`;
+  return `${currentStatusLabels(user).join("、")} · ${currentCountText(user)}`;
+}
+function currentCountText(user) {
+  const old = user.unclassifiedCount
+    ? `；另有 ${user.unclassifiedCount} 次旧记录未分类`
+    : "";
+  return `24小时已计入 ${user.dailyCount}/${user.dailyLimit} 次 · 其中 IP/域名白名单 ${user.ipWhitelistCount ?? 0} 次${old} · 下次第 ${user.nextRequestNumber} 次`;
 }
 function currentStatusCell(user) {
   const status = document.createElement("span");
@@ -123,7 +129,7 @@ function currentStatusCell(user) {
   }
   if (user) {
     const count = document.createElement("small");
-    count.textContent = `24小时已计入 ${user.dailyCount}/${user.dailyLimit} 次 · 下次第 ${user.nextRequestNumber} 次`;
+    count.textContent = currentCountText(user);
     status.append(count);
   }
   return status;
