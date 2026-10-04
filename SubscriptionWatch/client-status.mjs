@@ -1,6 +1,39 @@
 import { defaults, transaction } from "./model.mjs";
 import { requestCount } from "./review.mjs";
 
+export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
+  const ids = [
+    ...new Set(uids.filter((uid) => Number.isSafeInteger(uid) && uid > 0)),
+  ];
+  if (!ids.length) return new Map();
+  const dailyLimit = { ...defaults, ...JSON.parse(panel.rules) }.dailyLimit;
+  const subjects = db
+    .prepare(
+      `SELECT s.uid,s.email,s.white,s.verified,s.daily_reset_at,COALESCE(r.active,0) suspicious
+     FROM subjects s LEFT JOIN risks r ON r.panel=s.panel AND r.uid=s.uid
+     WHERE s.panel=? AND s.uid IN (${ids.map(() => "?").join(",")})`,
+    )
+    .all(panel.id, ...ids);
+  return new Map(
+    subjects.map((s) => {
+      const count = requestCount(db, panel.id, s.uid, now, s.daily_reset_at);
+      return [
+        s.uid,
+        {
+          email: s.email,
+          verified: !!s.verified,
+          white: !!s.white,
+          suspicious: !!s.suspicious,
+          dailyCount: count,
+          dailyLimit,
+          dailyLimitReached: count >= dailyLimit,
+          nextRequestNumber: count + 1,
+        },
+      ];
+    }),
+  );
+}
+
 export function clientStatusRows(
   db,
   panel,

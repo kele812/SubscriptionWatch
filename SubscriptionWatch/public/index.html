@@ -4,20 +4,19 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.7" />
+    <link rel="stylesheet" href="/style.css?v=4.0.8" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.7 · 独立采集 · 风险评估</small>
+        <small>v4.0.8 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
           ><button data-tab="sourceIp">来源 IP 调查</button
           ><button data-tab="destinations">用户访问记录</button
           ><span class="nav-heading">处置</span
-          ><button data-tab="clientStatus">客户状态</button
           ><button data-tab="risk">可疑用户</button
           ><button data-tab="riskHistory">评估历史</button
           ><button data-tab="whitelist">用户白名单</button
@@ -61,13 +60,17 @@
           </div>
         </div>
         <section id="history" data-view>
+          <p>
+            “结果”是这次请求的结果；“当前状态”是现在的可疑标记与滚动24小时订阅次数。同一用户的历史行会显示相同的当前状态。重置次数不会删除历史、取消可疑标记或解除
+            Xboard 账号封禁。
+          </p>
           <form id="filters" class="filters">
             <label>用户ID<input name="uid" inputmode="numeric" /></label
             ><label>邮箱<input name="email" /></label
             ><label>来源IP<input name="ip" /></label
             ><label>原始UA<input name="ua" /></label
             ><label
-              >状态<select name="result">
+              >结果<select name="result">
                 <option value="">全部</option>
                 <option value="success">订阅成功</option>
                 <option value="redirect">规则拦截跳转</option>
@@ -168,22 +171,6 @@
             <button id="destinationFirst">最新记录</button
             ><button id="destinationNext">下一页</button>
           </div>
-        </section>
-        <section id="clientStatus" data-view hidden>
-          <p>
-            显示当前面板已采集的客户。次数按滚动24小时、与每日拦截规则相同的口径计算；正常客户也会显示已计入次数及下一次的序号。未采集过订阅的
-            Xboard 用户不会出现在这里。
-          </p>
-          <form id="clientStatusSearch" class="filters">
-            <label>用户ID或邮箱<input name="q" maxlength="254" /></label>
-            <button>查询</button>
-          </form>
-          <div id="clientStatusTable"></div>
-          <p>
-            “重置24小时次数”只清零所选客户的计数，保留访问历史；如果客户仍被标记为可疑，重置次数不会解除可疑标记或
-            Xboard 账号封禁。此处“正常”只表示当前没有持续拦截状态；新请求的
-            UA、来源 IP 等仍会逐次审核。
-          </p>
         </section>
         <section id="risk" data-view hidden>
           <div class="section-heading">
@@ -806,6 +793,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.7"></script>
+    <script src="/app.js?v=4.0.8"></script>
   </body>
 </html>

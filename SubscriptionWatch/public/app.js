@@ -90,6 +90,44 @@ function visitStatusText(row) {
   if (row.delivered === 0 || row.status >= 400) return "请求失败";
   return "其他响应／未核实";
 }
+function currentStatusLabels(user) {
+  if (!user) return ["当前状态未记录"];
+  if (!user.verified) return ["客户资料未核实"];
+  const states = [];
+  if (user.white) states.push("用户白名单（规则豁免）");
+  if (user.suspicious)
+    states.push("可疑用户" + (user.white ? "（已豁免）" : ""));
+  if (user.dailyLimitReached)
+    states.push(`已达每日上限${user.white ? "（已豁免）" : "（下次拦截）"}`);
+  if (!states.length) states.push("正常");
+  return states;
+}
+function currentStatusText(user) {
+  if (!user) return "当前状态未记录";
+  return `${currentStatusLabels(user).join("、")} · 24小时已计入 ${user.dailyCount}/${user.dailyLimit} 次，下次第 ${user.nextRequestNumber} 次`;
+}
+function currentStatusCell(user) {
+  const status = document.createElement("span");
+  status.className = "client-states";
+  for (const label of currentStatusLabels(user)) {
+    const badge = document.createElement("span");
+    badge.className =
+      "badge" +
+      (user &&
+      !user.white &&
+      (label.startsWith("可疑") || label.startsWith("已达"))
+        ? " bad"
+        : "");
+    badge.textContent = label;
+    status.append(badge);
+  }
+  if (user) {
+    const count = document.createElement("small");
+    count.textContent = `24小时已计入 ${user.dailyCount}/${user.dailyLimit} 次 · 下次第 ${user.nextRequestNumber} 次`;
+    status.append(count);
+  }
+  return status;
+}
 function toast(text) {
   $("#toast").textContent = text;
   $("#toast").hidden = false;
@@ -279,7 +317,7 @@ function renderUserHistory(kind) {
     ];
   });
   const heads = {
-    visits: ["时间", "来源 IP / 归属地", "原始 UA", "状态"],
+    visits: ["时间", "来源 IP / 归属地", "原始 UA", "结果"],
     risks: ["时间", "评估结果", "触发规则"],
     actions: ["提交时间", "操作", "来源", "状态", "说明"],
   };
@@ -359,7 +397,8 @@ function sourceTraceDetail(r) {
     通过反代名称: r.proxy_name,
     反代已核验: r.proxy_verified,
     原始UA: r.ua,
-    状态: visitStatusText(r),
+    结果: visitStatusText(r),
+    当前状态: r.currentUser ? currentStatusText(r.currentUser) : null,
     请求响应: requestStatusText(r.status),
     触发规则: r.review_reasons,
     订阅内容:
@@ -616,17 +655,18 @@ function detail(data) {
           : "通过哪里反代：未记录外部反代（无法判断是否直连）",
       "evidence-summary",
     );
-    let statusLine = `状态：${data.状态}`;
-    if (data.状态 === "规则拦截跳转") {
+    let statusLine = `结果：${data.结果}`;
+    if (data.结果 === "规则拦截跳转") {
       let reasons = [];
       try {
         reasons = JSON.parse(data.触发规则 || "[]");
       } catch {}
       statusLine += ` · 触发规则：${Array.isArray(reasons) && reasons.length ? reasons.join("、") : "旧记录未保存具体规则"}`;
-    } else if (data.状态 !== "订阅成功") {
+    } else if (data.结果 !== "订阅成功") {
       statusLine += ` · ${data.请求响应 === "请求成功" ? "请求完成，但未返回订阅内容" : `请求响应：${data.请求响应 || "未知"}`}`;
     }
     line(card, statusLine);
+    if (data.当前状态) line(card, `当前状态：${data.当前状态}`);
     line(card, `订阅内容：${data.订阅内容}`);
     line(card, `UA：${data.原始UA || "（空）"}`);
     const extra = document.createElement("details");
@@ -888,7 +928,6 @@ async function refresh() {
           [
             "destinations",
             "history",
-            "clientStatus",
             "risk",
             "riskHistory",
             "whitelist",
@@ -896,13 +935,9 @@ async function refresh() {
             "riskRules",
             "telegram",
           ].includes(tab));
-    const pageable = [
-      "history",
-      "clientStatus",
-      "risk",
-      "riskHistory",
-      "whitelist",
-    ].includes(tab);
+    const pageable = ["history", "risk", "riskHistory", "whitelist"].includes(
+      tab,
+    );
     $("#pagination").hidden = !pageable || !panelId;
     let rows = [];
     if (tab === "sourceIp") {
@@ -1115,8 +1150,9 @@ async function refresh() {
           "用户ID / 邮箱",
           "来源IP / 归属地",
           "原始UA",
-          "状态",
-          "详情",
+          "结果",
+          "当前状态",
+          "操作",
         ],
         rows.map((r) => [
           batchCheck("history", r.id, `选择访问记录 ${r.id}`),
@@ -1125,72 +1161,30 @@ async function refresh() {
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
           visitStatusText(r),
-          button("查看", () => detail(sourceTraceDetail(r))),
+          currentStatusCell(r.currentUser),
+          actions(
+            button("查看", () => detail(sourceTraceDetail(r))),
+            ...(r.currentUser?.verified
+              ? [
+                  button("重置次数", () =>
+                    ask(
+                      "确认重置该客户的24小时订阅次数",
+                      `客户 ${r.uid} / ${r.currentUser.email}。旧访问记录保留；可疑标记和 Xboard 账号封禁不会解除。`,
+                      [],
+                      () =>
+                        api(`/api/panels/${panelId}/client-status/reset`, {
+                          uid: r.uid,
+                          email: r.currentUser.email,
+                          confirm: true,
+                        }),
+                    ),
+                  ),
+                ]
+              : []),
+          ),
         ]),
       );
       $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;
-    }
-    if (panelId && tab === "clientStatus") {
-      const data = await read(
-        endpoint("client-status") +
-          "?" +
-          new URLSearchParams({
-            q: $("#clientStatusSearch").elements.q.value,
-            page,
-          }),
-      );
-      rows = data.rows;
-      const id = panelId;
-      table(
-        "#clientStatusTable",
-        ["客户", "当前状态", "近24小时订阅次数", "最近请求", "操作"],
-        rows.map((r) => {
-          const states = [];
-          if (r.white) states.push("用户白名单（规则豁免）");
-          if (r.suspicious)
-            states.push("可疑用户" + (r.white ? "（已豁免）" : ""));
-          if (r.dailyLimitReached)
-            states.push(
-              `已达每日上限${r.white ? "（已豁免）" : "（下次拦截）"}`,
-            );
-          if (!states.length) states.push("正常");
-          const status = document.createElement("span");
-          status.className = "client-states";
-          for (const label of states) {
-            const badge = document.createElement("span");
-            badge.className =
-              "badge" +
-              (!r.white &&
-              (label.startsWith("可疑") || label.startsWith("已达"))
-                ? " bad"
-                : "");
-            badge.textContent = label;
-            status.append(badge);
-          }
-          return [
-            riskUserLink(r, id),
-            status,
-            `已计入 ${r.dailyCount} / ${data.dailyLimit} 次\n下一次是第 ${r.nextRequestNumber} 次`,
-            format(r.lastRequestAt),
-            actions(
-              button("重置24小时次数", () =>
-                ask(
-                  "确认重置该客户的24小时订阅次数",
-                  `客户 ${r.uid} / ${r.email}。旧访问记录仍保留；如果仍是可疑用户，订阅仍会被拦截。`,
-                  [],
-                  () =>
-                    api(`/api/panels/${id}/client-status/reset`, {
-                      uid: r.uid,
-                      email: r.email,
-                      confirm: true,
-                    }),
-                ),
-              ),
-            ),
-          ];
-        }),
-      );
-      $("#pageInfo").textContent = `共 ${data.total} 人 · 第 ${page} 页`;
     }
     if (panelId && tab === "risk") {
       const [collection, risks] = await Promise.all([
@@ -1333,8 +1327,7 @@ async function refresh() {
       );
     }
     if (pageable) {
-      if (!["history", "clientStatus"].includes(tab))
-        $("#pageInfo").textContent = "第 " + page + " 页";
+      if (tab !== "history") $("#pageInfo").textContent = "第 " + page + " 页";
       $("#prev").disabled = page === 1;
       $("#next").disabled = rows.length < 50;
     }
@@ -1608,10 +1601,6 @@ $("#filters").onreset = () =>
     refresh().catch((e) => toast(e.message));
   }, 0);
 $("#subjectSearch").onsubmit = run(async () => {
-  page = 1;
-  await refresh();
-});
-$("#clientStatusSearch").onsubmit = run(async () => {
   page = 1;
   await refresh();
 });

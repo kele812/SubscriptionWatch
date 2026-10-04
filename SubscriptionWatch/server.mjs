@@ -46,7 +46,11 @@ import {
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
-import { clientStatusRows, resetClientDailyCount } from "./client-status.mjs";
+import {
+  clientStatusByUsers,
+  clientStatusRows,
+  resetClientDailyCount,
+} from "./client-status.mjs";
 import { refreshAllWhitelists, refreshWhitelist } from "./whitelist.mjs";
 import { describeReviewCodes } from "./review-labels.mjs";
 import { evaluate, resolveRisk, riskRows, riskLevel } from "./risk.mjs";
@@ -1079,8 +1083,16 @@ export function createApp({
               );
             return res.end();
           }
+          const currentUsers = clientStatusByUsers(
+            db,
+            panel,
+            rows.map((r) => r.uid),
+          );
           return json(res, 200, {
-            rows,
+            rows: rows.map((r) => ({
+              ...r,
+              currentUser: currentUsers.get(r.uid) || null,
+            })),
             page,
             total: db
               .prepare("SELECT count(*) n FROM visits WHERE " + where)
@@ -1322,7 +1334,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.7 ready");
+  console.log("Subscription Watch v4.0.8 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

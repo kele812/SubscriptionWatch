@@ -470,6 +470,11 @@ td:nth-child(4) {
   flex-wrap: wrap;
   gap: 6px;
 }
+.client-states small {
+  flex-basis: 100%;
+  color: var(--muted);
+  line-height: 1.5;
+}
 .settings-form,
 .settings-block {
   max-width: 980px;
