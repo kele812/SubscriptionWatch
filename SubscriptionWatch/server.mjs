@@ -46,6 +46,7 @@ import {
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
+import { clientStatusRows, resetClientDailyCount } from "./client-status.mjs";
 import { refreshAllWhitelists, refreshWhitelist } from "./whitelist.mjs";
 import { describeReviewCodes } from "./review-labels.mjs";
 import { evaluate, resolveRisk, riskRows, riskLevel } from "./risk.mjs";
@@ -85,14 +86,18 @@ const fail = (status, message) => {
   throw Object.assign(Error(message), { status });
 };
 function withReviewReason(db, row) {
-  if (row.review_blocked !== 1 || row.review_reasons || !row.event_id) return row;
-  const decision = db.prepare(
-    "SELECT codes,reason_labels FROM review_decisions WHERE panel=? AND event_id=?",
-  ).get(row.panel, row.event_id);
+  if (row.review_blocked !== 1 || row.review_reasons || !row.event_id)
+    return row;
+  const decision = db
+    .prepare(
+      "SELECT codes,reason_labels FROM review_decisions WHERE panel=? AND event_id=?",
+    )
+    .get(row.panel, row.event_id);
   if (!decision) return row;
   return {
     ...row,
-    review_reasons: decision.reason_labels ||
+    review_reasons:
+      decision.reason_labels ||
       JSON.stringify(describeReviewCodes(JSON.parse(decision.codes))),
   };
 }
@@ -174,7 +179,9 @@ export function createApp({
     }
   };
   loadState();
-  refreshAllWhitelists(db).catch(() => console.error("whitelist DNS refresh failed"));
+  refreshAllWhitelists(db).catch(() =>
+    console.error("whitelist DNS refresh failed"),
+  );
   const sessions = new Map(),
     attempts = new Map();
   const initialized = () =>
@@ -256,7 +263,9 @@ export function createApp({
     for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
     transaction(db, () => {
       db.prepare("DELETE FROM receipts WHERE ts<?").run(now - MAX_AGE - 600000);
-      db.prepare("DELETE FROM review_decisions WHERE ts<?").run(now - 604800000);
+      db.prepare("DELETE FROM review_decisions WHERE ts<?").run(
+        now - 604800000,
+      );
       db.prepare("DELETE FROM samples WHERE ts<?").run(now - 604800000);
       db.prepare("DELETE FROM tg_confirm WHERE until<?").run(now);
       db.prepare("DELETE FROM outbox WHERE created<?").run(now - 604800000);
@@ -301,7 +310,9 @@ export function createApp({
         }, 3000),
         setInterval(() => {
           if (!restoring)
-            refreshAllWhitelists(db).catch(() => console.error("whitelist DNS refresh failed"));
+            refreshAllWhitelists(db).catch(() =>
+              console.error("whitelist DNS refresh failed"),
+            );
         }, 60000),
       ]
     : [];
@@ -317,7 +328,9 @@ export function createApp({
         const elapsed = Math.round(performance.now() - started);
         if (elapsed < 1000) return;
         const action = /^\/api\/panels\/\d+\/([a-z-]+)/.exec(route)?.[1];
-        console.warn(`slow request ${action || (route.startsWith("/api/") ? "api" : "page")}: ${elapsed}ms`);
+        console.warn(
+          `slow request ${action || (route.startsWith("/api/") ? "api" : "page")}: ${elapsed}ms`,
+        );
       });
       res.setHeader("Cache-Control", "private, no-store, max-age=0");
       res.setHeader("Pragma", "no-cache");
@@ -621,7 +634,8 @@ export function createApp({
             JOIN panels p ON p.id=v.panel WHERE v.ip=?
             ORDER BY v.ts DESC,v.id DESC LIMIT 100`,
             )
-            .all(ip).map((row) => ({
+            .all(ip)
+            .map((row) => ({
               ...withReviewReason(db, row),
               geo: ipGeo,
             }));
@@ -953,6 +967,29 @@ export function createApp({
             Math.min(1000000, parseInt(u.searchParams.get("page")) || 1),
           ),
           offset = (page - 1) * 50;
+        if (action === "client-status" && method === "GET")
+          return json(
+            res,
+            200,
+            clientStatusRows(db, panel, u.searchParams.get("q") || "", page),
+          );
+        if (action === "client-status/reset" && method === "POST") {
+          if (b.confirm !== true) fail(400, "请确认重置该用户的24小时次数");
+          if (
+            !Number.isSafeInteger(b.uid) ||
+            b.uid < 1 ||
+            typeof b.email !== "string"
+          )
+            fail(400, "用户ID或邮箱无效");
+          const subject = db
+            .prepare(
+              "SELECT email,verified FROM subjects WHERE panel=? AND uid=?",
+            )
+            .get(id, b.uid);
+          if (!subject?.verified || subject.email !== b.email)
+            fail(400, "用户ID与已采集邮箱不匹配，请刷新后重试");
+          return json(res, 200, resetClientDailyCount(db, id, b.uid, b.email));
+        }
         if (["events", "export"].includes(action) && method === "GET") {
           const conditions = ["panel=?"],
             params = [id];
@@ -979,10 +1016,13 @@ export function createApp({
           const resultFilter = u.searchParams.get("result") || "";
           const resultConditions = {
             "": null,
-            success: "COALESCE(review_blocked,0)=0 AND delivered=1 AND status BETWEEN 200 AND 299",
+            success:
+              "COALESCE(review_blocked,0)=0 AND delivered=1 AND status BETWEEN 200 AND 299",
             redirect: "review_blocked=1",
-            failure: "COALESCE(review_blocked,0)=0 AND (delivered=0 OR status>=400)",
-            other: "COALESCE(review_blocked,0)=0 AND NOT (COALESCE(delivered,-1)=1 AND COALESCE(status,0) BETWEEN 200 AND 299) AND NOT (COALESCE(delivered,-1)=0 OR COALESCE(status,0)>=400)",
+            failure:
+              "COALESCE(review_blocked,0)=0 AND (delivered=0 OR status>=400)",
+            other:
+              "COALESCE(review_blocked,0)=0 AND NOT (COALESCE(delivered,-1)=1 AND COALESCE(status,0) BETWEEN 200 AND 299) AND NOT (COALESCE(delivered,-1)=0 OR COALESCE(status,0)>=400)",
           };
           if (!Object.hasOwn(resultConditions, resultFilter))
             fail(400, "状态筛选无效");
@@ -1000,7 +1040,10 @@ export function createApp({
               action === "export" ? 50000 : 50,
               action === "export" ? 0 : offset,
             )
-            .map((r) => ({ ...withReviewReason(db, r), geo: geo.lookup(r.ip) }));
+            .map((r) => ({
+              ...withReviewReason(db, r),
+              geo: geo.lookup(r.ip),
+            }));
           if (action === "export") {
             const escape = (x) =>
               '"' +
@@ -1175,7 +1218,8 @@ export function createApp({
               .all(id, ...uids);
             if (found.length !== uids.length)
               fail(400, "所选可疑用户已变化，请刷新后重试");
-            for (const user of found) resolveRisk(db, id, user.uid, { resetDaily: true });
+            for (const user of found)
+              resolveRisk(db, id, user.uid, { resetDaily: true });
             return found.length;
           });
           return json(res, 200, { ok: true, count });
@@ -1278,7 +1322,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.6 ready");
+  console.log("Subscription Watch v4.0.7 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

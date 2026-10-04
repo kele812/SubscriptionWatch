@@ -601,7 +601,10 @@ function detail(data) {
     const card = document.createElement("section");
     card.className = "evidence-card";
     line(card, `时间：${data.时间}`, "evidence-summary");
-    line(card, `IP 及归属地：${data.来源IP || "未知"} · ${geoText(data.归属地 || {})}`);
+    line(
+      card,
+      `IP 及归属地：${data.来源IP || "未知"} · ${geoText(data.归属地 || {})}`,
+    );
     const proxyRecorded = Boolean(data.通过反代IP || data.通过反代名称);
     const proxyLabel = `${data.通过反代名称 || "未命名"} · ${data.通过反代IP || "IP 未记录"}`;
     line(
@@ -616,7 +619,9 @@ function detail(data) {
     let statusLine = `状态：${data.状态}`;
     if (data.状态 === "规则拦截跳转") {
       let reasons = [];
-      try { reasons = JSON.parse(data.触发规则 || "[]"); } catch {}
+      try {
+        reasons = JSON.parse(data.触发规则 || "[]");
+      } catch {}
       statusLine += ` · 触发规则：${Array.isArray(reasons) && reasons.length ? reasons.join("、") : "旧记录未保存具体规则"}`;
     } else if (data.状态 !== "订阅成功") {
       statusLine += ` · ${data.请求响应 === "请求成功" ? "请求完成，但未返回订阅内容" : `请求响应：${data.请求响应 || "未知"}`}`;
@@ -775,7 +780,15 @@ function fillRules() {
     if (!el) continue;
     if (el.type === "checkbox") el.checked = !!v;
     else if (k === "ipWhitelist")
-      el.value = v.map((entry) => entry + (p.rules.ipWhitelistNotes?.[entry] ? ` # ${p.rules.ipWhitelistNotes[entry]}` : "")).join("\n");
+      el.value = v
+        .map(
+          (entry) =>
+            entry +
+            (p.rules.ipWhitelistNotes?.[entry]
+              ? ` # ${p.rules.ipWhitelistNotes[entry]}`
+              : ""),
+        )
+        .join("\n");
     else el.value = Array.isArray(v) ? v.join("\n") : v;
   }
   updateRuleConditions(false);
@@ -875,6 +888,7 @@ async function refresh() {
           [
             "destinations",
             "history",
+            "clientStatus",
             "risk",
             "riskHistory",
             "whitelist",
@@ -882,9 +896,13 @@ async function refresh() {
             "riskRules",
             "telegram",
           ].includes(tab));
-    const pageable = ["history", "risk", "riskHistory", "whitelist"].includes(
-      tab,
-    );
+    const pageable = [
+      "history",
+      "clientStatus",
+      "risk",
+      "riskHistory",
+      "whitelist",
+    ].includes(tab);
     $("#pagination").hidden = !pageable || !panelId;
     let rows = [];
     if (tab === "sourceIp") {
@@ -1112,6 +1130,68 @@ async function refresh() {
       );
       $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;
     }
+    if (panelId && tab === "clientStatus") {
+      const data = await read(
+        endpoint("client-status") +
+          "?" +
+          new URLSearchParams({
+            q: $("#clientStatusSearch").elements.q.value,
+            page,
+          }),
+      );
+      rows = data.rows;
+      const id = panelId;
+      table(
+        "#clientStatusTable",
+        ["客户", "当前状态", "近24小时订阅次数", "最近请求", "操作"],
+        rows.map((r) => {
+          const states = [];
+          if (r.white) states.push("用户白名单（规则豁免）");
+          if (r.suspicious)
+            states.push("可疑用户" + (r.white ? "（已豁免）" : ""));
+          if (r.dailyLimitReached)
+            states.push(
+              `已达每日上限${r.white ? "（已豁免）" : "（下次拦截）"}`,
+            );
+          if (!states.length) states.push("正常");
+          const status = document.createElement("span");
+          status.className = "client-states";
+          for (const label of states) {
+            const badge = document.createElement("span");
+            badge.className =
+              "badge" +
+              (!r.white &&
+              (label.startsWith("可疑") || label.startsWith("已达"))
+                ? " bad"
+                : "");
+            badge.textContent = label;
+            status.append(badge);
+          }
+          return [
+            riskUserLink(r, id),
+            status,
+            `已计入 ${r.dailyCount} / ${data.dailyLimit} 次\n下一次是第 ${r.nextRequestNumber} 次`,
+            format(r.lastRequestAt),
+            actions(
+              button("重置24小时次数", () =>
+                ask(
+                  "确认重置该客户的24小时订阅次数",
+                  `客户 ${r.uid} / ${r.email}。旧访问记录仍保留；如果仍是可疑用户，订阅仍会被拦截。`,
+                  [],
+                  () =>
+                    api(`/api/panels/${id}/client-status/reset`, {
+                      uid: r.uid,
+                      email: r.email,
+                      confirm: true,
+                    }),
+                ),
+              ),
+            ),
+          ];
+        }),
+      );
+      $("#pageInfo").textContent = `共 ${data.total} 人 · 第 ${page} 页`;
+    }
     if (panelId && tab === "risk") {
       const [collection, risks] = await Promise.all([
         read(endpoint("destinations/settings")),
@@ -1160,8 +1240,11 @@ async function refresh() {
             button("历史记录", () => openUserHistory(id, r.uid, r.email)),
             riskCollectionAction(id, r, collectingUsers.has(r.uid)),
             button("取消风险", () =>
-              ask("取消风险", "该用户的每日订阅次数将从零重新计算，历史记录保留；新增异常仍可标记。", [], () =>
-                api(`/api/panels/${id}/resolve`, { uid: r.uid }),
+              ask(
+                "取消风险",
+                "该用户的每日订阅次数将从零重新计算，历史记录保留；新增异常仍可标记。",
+                [],
+                () => api(`/api/panels/${id}/resolve`, { uid: r.uid }),
               ),
             ),
             ...(r.active
@@ -1250,7 +1333,8 @@ async function refresh() {
       );
     }
     if (pageable) {
-      if (tab !== "history") $("#pageInfo").textContent = "第 " + page + " 页";
+      if (!["history", "clientStatus"].includes(tab))
+        $("#pageInfo").textContent = "第 " + page + " 页";
       $("#prev").disabled = page === 1;
       $("#next").disabled = rows.length < 50;
     }
@@ -1527,6 +1611,10 @@ $("#subjectSearch").onsubmit = run(async () => {
   page = 1;
   await refresh();
 });
+$("#clientStatusSearch").onsubmit = run(async () => {
+  page = 1;
+  await refresh();
+});
 $("#showResolved").onchange = run(async () => {
   page = 1;
   await refresh();
@@ -1782,12 +1870,18 @@ function updateRuleConditions(dirty = true) {
     v = (n) => f.elements[n].value,
     on = (n) => f.elements[n].checked;
   const items = [
-    ["uaEnabled", "新请求的UA为空或不匹配允许关键词，只拦截本次订阅并跳转，不标记可疑"],
+    [
+      "uaEnabled",
+      "新请求的UA为空或不匹配允许关键词，只拦截本次订阅并跳转，不标记可疑",
+    ],
     [
       "chinaEnabled",
       `${v("cnShortMinutes")}分钟出现第${Number(v("cnShortLimit")) + 1}个或${v("cnLongMinutes")}分钟出现第${Number(v("cnLongLimit")) + 1}个不同中国大陆IP，当次标记并跳转`,
     ],
-    ["dcEnabled", `云服务器IP每次请求都跳转；${v("cloudShortMinutes")}分钟达到${v("cloudShortLimit")}次或${v("cloudLongMinutes")}分钟达到${v("cloudLongLimit")}次时标记可疑`],
+    [
+      "dcEnabled",
+      `云服务器IP每次请求都跳转；${v("cloudShortMinutes")}分钟达到${v("cloudShortLimit")}次或${v("cloudLongMinutes")}分钟达到${v("cloudLongLimit")}次时标记可疑`,
+    ],
     [
       "foreignEnabled",
       `${v("foreignShortMinutes")}分钟出现第${Number(v("foreignShortLimit")) + 1}个或${v("foreignLongMinutes")}分钟出现第${Number(v("foreignLongLimit")) + 1}个不同非中国大陆IP，当次标记并跳转`,

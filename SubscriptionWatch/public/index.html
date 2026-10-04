@@ -4,19 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.6" />
+    <link rel="stylesheet" href="/style.css?v=4.0.7" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.6 · 独立采集 · 风险评估</small>
+        <small>v4.0.7 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">访问记录</button
           ><button data-tab="sourceIp">来源 IP 调查</button
           ><button data-tab="destinations">用户访问记录</button
           ><span class="nav-heading">处置</span
+          ><button data-tab="clientStatus">客户状态</button
           ><button data-tab="risk">可疑用户</button
           ><button data-tab="riskHistory">评估历史</button
           ><button data-tab="whitelist">用户白名单</button
@@ -65,7 +66,14 @@
             ><label>邮箱<input name="email" /></label
             ><label>来源IP<input name="ip" /></label
             ><label>原始UA<input name="ua" /></label
-            ><label>状态<select name="result"><option value="">全部</option><option value="success">订阅成功</option><option value="redirect">规则拦截跳转</option><option value="failure">请求失败</option><option value="other">其他响应／未核实</option></select></label
+            ><label
+              >状态<select name="result">
+                <option value="">全部</option>
+                <option value="success">订阅成功</option>
+                <option value="redirect">规则拦截跳转</option>
+                <option value="failure">请求失败</option>
+                <option value="other">其他响应／未核实</option>
+              </select></label
             ><label>开始时间<input name="from" type="datetime-local" /></label
             ><label>结束时间<input name="to" type="datetime-local" /></label
             ><button>查询</button><button type="reset">重置</button
@@ -160,6 +168,22 @@
             <button id="destinationFirst">最新记录</button
             ><button id="destinationNext">下一页</button>
           </div>
+        </section>
+        <section id="clientStatus" data-view hidden>
+          <p>
+            显示当前面板已采集的客户。次数按滚动24小时、与每日拦截规则相同的口径计算；正常客户也会显示已计入次数及下一次的序号。未采集过订阅的
+            Xboard 用户不会出现在这里。
+          </p>
+          <form id="clientStatusSearch" class="filters">
+            <label>用户ID或邮箱<input name="q" maxlength="254" /></label>
+            <button>查询</button>
+          </form>
+          <div id="clientStatusTable"></div>
+          <p>
+            “重置24小时次数”只清零所选客户的计数，保留访问历史；如果客户仍被标记为可疑，重置次数不会解除可疑标记或
+            Xboard 账号封禁。此处“正常”只表示当前没有持续拦截状态；新请求的
+            UA、来源 IP 等仍会逐次审核。
+          </p>
         </section>
         <section id="risk" data-view hidden>
           <div class="section-heading">
@@ -357,7 +381,10 @@
             <p>
               新请求先由风控机审核。命中拦截时只跳转本次订阅；被标记为可疑的用户持续拦截，直到手动取消。手动取消后，该用户的每日订阅次数从零重新计算，历史访问仍保留；有新异常仍会重新标记。IP归属地判断依赖已安装的数据库。
             </p>
-            <p>用户白名单和来源 IP／域名白名单命中后，不受订阅风控规则限制，但仍记录访问。风控机失联或审核超时时，一律拒绝本次订阅。</p>
+            <p>
+              用户白名单和来源
+              IP／域名白名单命中后，不受订阅风控规则限制，但仍记录访问。风控机失联或审核超时时，一律拒绝本次订阅。
+            </p>
             <fieldset class="rule-card">
               <legend>01 · 非指定客户端获取订阅</legend>
               <label><input type="checkbox" name="uaEnabled" />启用UA检查</label
@@ -368,7 +395,9 @@
                 ></textarea>
               </label>
               <p>
-                新请求的完整 UA 不包含任何允许关键词时，只拦截本次订阅并跳转，不标记为可疑用户。UA 可以伪造，匹配不代表身份可信。
+                新请求的完整 UA
+                不包含任何允许关键词时，只拦截本次订阅并跳转，不标记为可疑用户。UA
+                可以伪造，匹配不代表身份可信。
               </p>
               <button type="button" id="addCommonUa">补充常见UA关键词</button>
             </fieldset>
@@ -435,12 +464,40 @@
                 匹配关键词的云服务器IP每次请求都跳转。同一用户60分钟内第3次，或720分钟内第10次云服务器请求时标记可疑；同一个IP重复请求也计数。关键词忽略大小写。
               </p>
               <div class="form-grid">
-                <label>较短时间范围（分钟）<input type="number" min="1" max="10080" required name="cloudShortMinutes" /></label>
-                <label>达到几次请求<input type="number" min="1" max="1000" required name="cloudShortLimit" /></label>
+                <label
+                  >较短时间范围（分钟）<input
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required
+                    name="cloudShortMinutes"
+                /></label>
+                <label
+                  >达到几次请求<input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                    name="cloudShortLimit"
+                /></label>
               </div>
               <div class="form-grid">
-                <label>较长时间范围（分钟）<input type="number" min="1" max="10080" required name="cloudLongMinutes" /></label>
-                <label>达到几次请求<input type="number" min="1" max="1000" required name="cloudLongLimit" /></label>
+                <label
+                  >较长时间范围（分钟）<input
+                    type="number"
+                    min="1"
+                    max="10080"
+                    required
+                    name="cloudLongMinutes"
+                /></label>
+                <label
+                  >达到几次请求<input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                    name="cloudLongLimit"
+                /></label>
               </div>
             </fieldset>
             <fieldset class="rule-card">
@@ -491,27 +548,57 @@
             </fieldset>
             <fieldset class="rule-card">
               <legend>05 · 黑名单 IP 获取订阅</legend>
-              <label><input type="checkbox" name="reviewBlockBlacklist" />命中时标记可疑并跳转</label>
+              <label
+                ><input
+                  type="checkbox"
+                  name="reviewBlockBlacklist"
+                />命中时标记可疑并跳转</label
+              >
               <p>
                 开启后，所有面板共用的黑名单IP一旦请求订阅，就标记可疑并跳转。名单的自动收集和保留天数仍在“IP黑名单”页面设置。
               </p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>06 · 每日订阅请求上限</legend>
-              <label>同一用户最近滚动24小时最多请求次数
-                <input name="dailyLimit" type="number" min="1" max="10000" required />
+              <label
+                >同一用户最近滚动24小时最多请求次数
+                <input
+                  name="dailyLimit"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  required
+                />
               </label>
-              <p>默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。手动取消可疑标记后，此用户从零重新计数，旧访问记录不删除。</p>
+              <p>
+                默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。手动取消可疑标记后，此用户从零重新计数，旧访问记录不删除。
+              </p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>拦截后跳转</legend>
-              <label>跳转网址<input name="reviewRedirectUrl" type="url" maxlength="2048" required placeholder="https://www.baidu.com/" /></label>
-              <p>所有正常审核拦截统一返回302跳转，默认百度。修改后只影响新请求；风控机失联或审核超时时返回403。</p>
+              <label
+                >跳转网址<input
+                  name="reviewRedirectUrl"
+                  type="url"
+                  maxlength="2048"
+                  required
+                  placeholder="https://www.baidu.com/"
+              /></label>
+              <p>
+                所有正常审核拦截统一返回302跳转，默认百度。修改后只影响新请求；风控机失联或审核超时时返回403。
+              </p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>仅允许中国大陆或白名单 IP 获取订阅</legend>
-              <label><input type="checkbox" name="mainlandOnly" />开启限制</label>
-              <p>开启后，来源 IP 不属于中国大陆且未命中用户白名单或下方 IP／域名白名单时，本次订阅直接跳转，不标记可疑用户。中国大陆 IP 仍需通过其他规则；归属地未知按非中国大陆处理。Cloudflare 豁免不能绕过此限制。</p>
+              <label
+                ><input type="checkbox" name="mainlandOnly" />开启限制</label
+              >
+              <p>
+                开启后，来源 IP 不属于中国大陆且未命中用户白名单或下方
+                IP／域名白名单时，本次订阅直接跳转，不标记可疑用户。中国大陆 IP
+                仍需通过其他规则；归属地未知按非中国大陆处理。Cloudflare
+                豁免不能绕过此限制。
+              </p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>不检查的访问来源</legend>
@@ -527,7 +614,9 @@
                 />不检查来自Cloudflare的订阅请求</label
               >
               <p class="evidence-exempt">
-                例如：1.2.3.4 # 自有节点，或 vpn.example.com # 备用出口。域名由风控机定时解析 IPv4／IPv6；解析失败时不匹配白名单。白名单命中后不受所有订阅风控规则限制，包括每日次数与已有可疑标记；访问仍会记录。风控机失联时仍拒绝本次订阅。
+                例如：1.2.3.4 # 自有节点，或 vpn.example.com #
+                备用出口。域名由风控机定时解析
+                IPv4／IPv6；解析失败时不匹配白名单。白名单命中后不受所有订阅风控规则限制，包括每日次数与已有可疑标记；访问仍会记录。风控机失联时仍拒绝本次订阅。
               </p>
             </fieldset>
             <p id="rulesDirty" role="status">规则已保存</p>
@@ -717,6 +806,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.6"></script>
+    <script src="/app.js?v=4.0.7"></script>
   </body>
 </html>

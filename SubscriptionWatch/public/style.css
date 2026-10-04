@@ -465,6 +465,11 @@ td:nth-child(4) {
   background: #3c1d31;
   color: var(--pink);
 }
+.client-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .settings-form,
 .settings-block {
   max-width: 980px;
@@ -987,4 +992,3 @@ dialog::backdrop {
   color: #ff707e;
   border-color: #ff707e;
 }
-
