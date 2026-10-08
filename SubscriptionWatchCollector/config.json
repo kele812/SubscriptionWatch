@@ -24,6 +24,12 @@
       "label": "采集密钥",
       "description": "从风控后台的接入设置复制采集密钥；不是Xboard管理凭据。"
     },
+    "fail_open": {
+      "type": "boolean",
+      "default": false,
+      "label": "风控后台失联时继续下发",
+      "description": "开启：所有风控地址均连接失败、超时或返回服务器5xx时照常下发。关闭：只拒绝本次订阅。风控后台明确拒绝、密钥错误、验签失败或插件配置错误时始终拒绝。默认关闭。"
+    },
     "trusted_proxies": {
       "type": "string",
       "default": "",

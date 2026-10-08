@@ -4,6 +4,8 @@ namespace Plugin\SubscriptionWatchCollector\Services;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 
+class ReviewUnavailable extends \RuntimeException {}
+
 class Endpoints
 {
     public static function parse(string $value): array
@@ -40,6 +42,6 @@ class Endpoints
             if ($response->status() >= 500) continue;
             return $response;
         }
-        throw new \RuntimeException('All watch origins unavailable');
+        throw new ReviewUnavailable('All watch origins unavailable');
     }
 }

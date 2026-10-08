@@ -6,6 +6,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Support\Facades\Log;
 use Plugin\SubscriptionWatchCollector\Services\Collector;
+use Plugin\SubscriptionWatchCollector\Services\ReviewUnavailable;
 
 require_once __DIR__ . '/Services/Collector.php';
 require_once __DIR__ . '/Services/Endpoints.php';
@@ -20,10 +21,15 @@ class Plugin extends AbstractPlugin
     {
         // Store all request-specific state on the Request, never in an Octane singleton.
         $this->listen('client.subscribe.before', function () {
-            $collector = new Collector($this->getConfig());
+            $options = $this->getConfig();
+            $collector = new Collector($options);
             try {
                 $collector->mark(request());
                 $decision = $collector->review(request());
+            } catch (ReviewUnavailable $e) {
+                // Only transport errors, timeouts and exhausted 5xx failover may use this option.
+                if (filter_var($options['fail_open'] ?? false, FILTER_VALIDATE_BOOLEAN)) return;
+                $decision = ['allow' => false, 'redirect' => null];
             } catch (\UnexpectedValueException $e) {
                 static $lastWarningAt = 0;
                 if (time() - $lastWarningAt >= 60) {
