@@ -46,6 +46,7 @@ import {
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
+import { validateCollectorUrls } from "./collector-urls.mjs";
 import {
   clientStatusByUsers,
   clientStatusRows,
@@ -241,6 +242,7 @@ export function createApp({
     owner_name: p.owner_name,
     name: p.name,
     public_id: p.public_id,
+    collectorUrls: JSON.parse(p.collector_urls || "[]"),
     rules: { ...defaults, ...JSON.parse(p.rules) },
     commonUaKeywords: defaults.uaKeywords,
     notify: !!p.notify,
@@ -924,11 +926,21 @@ export function createApp({
           )
             fail(400, "面板设置格式错误");
           const rules = validateRules(b.rules);
+          const collectorUrls =
+            b.collectorUrls === undefined
+              ? JSON.parse(panel.collector_urls || "[]")
+              : validateCollectorUrls(b.collectorUrls);
           await refreshWhitelist(rules);
           transaction(db, () => {
             db.prepare(
-              "UPDATE panels SET name=?,notify=?,rules=? WHERE id=?",
-            ).run(b.name.trim(), Number(b.notify), JSON.stringify(rules), id);
+              "UPDATE panels SET name=?,notify=?,rules=?,collector_urls=? WHERE id=?",
+            ).run(
+              b.name.trim(),
+              Number(b.notify),
+              JSON.stringify(rules),
+              JSON.stringify(collectorUrls),
+              id,
+            );
             const changed = {
               ...panel,
               name: b.name.trim(),
@@ -1334,7 +1346,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.9 ready");
+  console.log("Subscription Watch v4.0.10 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

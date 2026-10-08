@@ -4,9 +4,11 @@ namespace Plugin\SubscriptionWatchCollector;
 use App\Services\Plugin\AbstractPlugin;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Support\Facades\Log;
 use Plugin\SubscriptionWatchCollector\Services\Collector;
 
 require_once __DIR__ . '/Services/Collector.php';
+require_once __DIR__ . '/Services/Endpoints.php';
 require_once __DIR__ . '/Services/Buffer.php';
 require_once __DIR__ . '/Services/Control.php';
 
@@ -23,6 +25,11 @@ class Plugin extends AbstractPlugin
                 $collector->mark(request());
                 $decision = $collector->review(request());
             } catch (\UnexpectedValueException $e) {
+                static $lastWarningAt = 0;
+                if (time() - $lastWarningAt >= 60) {
+                    $lastWarningAt = time();
+                    Log::warning('Subscription Watch review authentication or signature invalid; subscription denied');
+                }
                 $decision = ['allow' => false, 'redirect' => null];
             } catch (\Throwable $e) {
                 // Never deliver a subscription when risk review is unavailable.

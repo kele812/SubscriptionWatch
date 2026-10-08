@@ -1,7 +1,6 @@
 <?php
 namespace Plugin\SubscriptionWatchCollector\Services;
 
-use Illuminate\Support\Facades\Http;
 
 class Collector
 {
@@ -11,10 +10,9 @@ class Collector
 
     private function ready(): bool
     {
-        $url = parse_url((string) ($this->options['endpoint'] ?? ''));
-        return is_array($url) && ($url['scheme'] ?? '') === 'https' && !empty($url['host'])
-            && empty($url['user']) && empty($url['pass']) && empty($url['query']) && empty($url['fragment'])
-            && in_array($url['path'] ?? '', ['', '/'], true) && strlen((string) ($this->options['secret'] ?? '')) >= 32;
+        if (strlen((string) ($this->options['secret'] ?? '')) < 32) return false;
+        try { Endpoints::parse((string) ($this->options['endpoint'] ?? '')); return true; }
+        catch (\InvalidArgumentException $e) { return false; }
     }
 
     public static function sourceIp(string $peer, string $forwarded, string $configured): array
@@ -91,14 +89,13 @@ class Collector
         $timestamp = (string) time();
         $secret = (string) $this->options['secret'];
         $signature = hash_hmac('sha256', $timestamp . "\n" . $body, $secret);
-        $response = Http::connectTimeout(1)->timeout(4)->withoutRedirecting()
-            ->withHeaders([
+        $response = Endpoints::post(
+            Endpoints::parse((string) $this->options['endpoint']),
+            '/api/collector/review', $body, [
                 'X-Watch-Timestamp' => $timestamp,
                 'X-Watch-Signature' => $signature,
                 'X-Watch-Panel' => (string) ($this->options['panel_id'] ?? ''),
-            ])
-            ->withBody($body, 'application/json')
-            ->post(rtrim($this->options['endpoint'], '/') . '/api/collector/review');
+            ], 4.0);
         if ($response->status() >= 400 && $response->status() < 500)
             throw new \UnexpectedValueException('review authentication or request rejected');
         if ($response->status() !== 200) throw new \RuntimeException('review unavailable');
@@ -155,12 +152,13 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '4.0.9', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '4.0.10', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
-                $response = Http::connectTimeout(1)->timeout(3)->withoutRedirecting()
-                    ->withHeaders(['X-Watch-Timestamp' => $timestamp, 'X-Watch-Signature' => $signature, 'X-Watch-Panel' => (string) ($this->options['panel_id'] ?? '')])
-                    ->withBody($payload, 'application/json')->post(rtrim($this->options['endpoint'], '/') . '/api/collector/events');
+                $response = Endpoints::post(
+                    Endpoints::parse((string) $this->options['endpoint']),
+                    '/api/collector/events', $payload,
+                    ['X-Watch-Timestamp' => $timestamp, 'X-Watch-Signature' => $signature, 'X-Watch-Panel' => (string) ($this->options['panel_id'] ?? '')], 3.0);
                 if (!$response->successful() || $response->json('ok') !== true || $response->json('accepted') !== count($members)) { $buffer->uploadFailed(); break; }
                 $buffer->acknowledge($members, $token);
                 if (count($members) < 100) break;

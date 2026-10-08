@@ -1,8 +1,10 @@
-# SubscriptionWatch v4.0.9
+# SubscriptionWatch v4.0.10
+
+每个面板的“插件接入”可保存最多5个指向同一风控机的 HTTPS 地址，按优先顺序排列。保存后，还需在 Xboard 采集插件中用英文逗号填写同一组地址，并在 XBnpp 节点上配置备用地址。连接失败、超时或服务器5xx时才切换；认证失败、签名错误不切换。全部地址不可用时，订阅审核仍拒绝下发。
 
 ## 上传插件
 
-后台和采集插件统一为 **v4.0.9**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.9.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.9.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。访问记录同时展示“结果”（这次请求）和“当前状态”（该用户现在是否可疑、是否达到24小时请求上限，以及已计入次数和下一次序号）；当前状态还会显示其中通过 IP／域名白名单放行的次数，升级前的旧记录标为未分类。可在该行单独重置用户24小时计数，访问历史和可疑标记保留。
+后台和采集插件统一为 **v4.0.10**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.10.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.10.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。访问记录同时展示“结果”（这次请求）和“当前状态”（该用户现在是否可疑、是否达到24小时请求上限，以及已计入次数和下一次序号）；当前状态还会显示其中通过 IP／域名白名单放行的次数，升级前的旧记录标为未分类。可在该行单独重置用户24小时计数，访问历史和可疑标记保留。
 
 风险规则有独立菜单。可按面板开启“仅允许中国大陆或白名单 IP 获取订阅”；白名单支持 IP、域名和备注，域名解析失败时不匹配。用户白名单或 IP／域名白名单命中后，跳过所有订阅风控规则，包括每日次数和已有可疑标记；访问仍记录。未命中白名单的大陆来源仍按其他规则检查。非指定客户端只拦截本次订阅，不标记可疑；多个中国大陆或非中国大陆 IP 在达到阈值的当次标记并跳转；云服务器 IP 每次请求都跳转，60 分钟第 3 次或 720 分钟第 10 次标记可疑。黑名单命中可选择启用拦截。每个用户滚动 24 小时默认最多请求 30 次，第 31 次起跳转，成功和拦截都计数；上限本身不标记可疑。手动取消可疑标记后，该用户每日次数从零重新计算，旧访问记录保留。风控后台失联或审核超时时，插件拒绝本次订阅，白名单也不例外。
 

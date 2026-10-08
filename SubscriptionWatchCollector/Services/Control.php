@@ -4,7 +4,6 @@ namespace Plugin\SubscriptionWatchCollector\Services;
 use App\Models\User;
 use App\Services\AuthService;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 
 // Runs only in the minute scheduler, never in a customer's subscription request.
 class Control
@@ -14,40 +13,38 @@ class Control
 
     public function poll(): void
     {
-        $endpoint = rtrim((string) ($this->options['endpoint'] ?? ''), '/');
-        $url = parse_url($endpoint);
+        try { $endpoints = Endpoints::parse((string) ($this->options['endpoint'] ?? '')); }
+        catch (\InvalidArgumentException $e) { return; }
         $secret = (string) ($this->options['secret'] ?? '');
         $panel = (string) ($this->options['panel_id'] ?? '');
-        if (!is_array($url) || ($url['scheme'] ?? '') !== 'https' || empty($url['host'])
-            || !empty($url['user']) || !empty($url['pass']) || !empty($url['query']) || !empty($url['fragment'])
-            || !in_array($url['path'] ?? '', ['', '/'], true) || strlen($secret) < 32 || !preg_match('/^[a-f0-9]{48}$/D', $panel)) return;
+        if (strlen($secret) < 32 || !preg_match('/^[a-f0-9]{48}$/D', $panel)) return;
         $redis = (new Buffer($this->options))->controlConnection();
-        // Namespace results by destination and key, never mix two panel configurations.
-        $prefix = 'control:' . substr(hash('sha256', $endpoint . '|' . $panel . '|' . $secret), 0, 24) . ':';
+        // Keep the primary origin in the namespace for compatibility with queued results from older versions.
+        $prefix = 'control:' . substr(hash('sha256', $endpoints[0] . '|' . $panel . '|' . $secret), 0, 24) . ':';
         $lock = bin2hex(random_bytes(24));
         if (!(int) $redis->eval("if redis.call('EXISTS',KEYS[1])==0 then redis.call('SET',KEYS[1],ARGV[1],'EX',60); return 1 end return 0", 1, $prefix . 'lock', $lock)) return;
         try {
-            $this->exchange($redis, $prefix, $endpoint, $panel, $secret, true);
+            $this->exchange($redis, $prefix, $endpoints, $panel, $secret, true);
             // Send results promptly, without taking more tasks in the same scheduler run.
-            if ((int) $redis->hlen($prefix . 'results') > 0) $this->exchange($redis, $prefix, $endpoint, $panel, $secret, false);
+            if ((int) $redis->hlen($prefix . 'results') > 0) $this->exchange($redis, $prefix, $endpoints, $panel, $secret, false);
         } finally {
             $redis->eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0", 1, $prefix . 'lock', $lock);
         }
     }
 
-    private function exchange($redis, string $prefix, string $endpoint, string $panel, string $secret, bool $take): void
+    private function exchange($redis, string $prefix, array $endpoints, string $panel, string $secret, bool $take): void
     {
         $pending = array_slice($redis->hgetall($prefix . 'results'), 0, 10, true);
         $results = [];
         foreach ($pending as $id => $status) $results[] = ['id' => $id, 'status' => $status];
         $nonce = bin2hex(random_bytes(24));
-        $payload = json_encode(['schema' => 1, 'capability' => 'ban-v2', 'version' => '4.0.9', 'nonce' => $nonce,
+        $payload = json_encode(['schema' => 1, 'capability' => 'ban-v2', 'version' => '4.0.10', 'nonce' => $nonce,
             'acceptTasks' => $take && (int) $redis->hlen($prefix . 'results') < 90, 'results' => $results], JSON_THROW_ON_ERROR);
         $timestamp = (string) time();
-        $response = Http::connectTimeout(2)->timeout(5)->withoutRedirecting()->withHeaders([
+        $response = Endpoints::post($endpoints, '/api/collector/control', $payload, [
             'X-Watch-Panel' => $panel, 'X-Watch-Timestamp' => $timestamp,
             'X-Watch-Signature' => hash_hmac('sha256', "control-request\n" . $timestamp . "\n" . $payload, $secret),
-        ])->withBody($payload, 'application/json')->post($endpoint . '/api/collector/control');
+        ], 5.0);
         if (!$response->successful() || strlen($response->body()) > 32768) return;
         $envelope = $response->json();
         if (!is_array($envelope) || !is_string($envelope['payload'] ?? null) || !is_string($envelope['signature'] ?? null)

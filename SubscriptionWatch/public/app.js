@@ -813,7 +813,9 @@ function fillRules() {
   $("#collectorKey").value = "";
   $("#collectorKey").hidden = true;
   if (!p) return;
-  $("#collectorUrl").value = location.origin;
+  $("#collectorUrl").value = p.collectorUrls?.length
+    ? p.collectorUrls.join("\n")
+    : location.origin;
   $("#publicId").value = p.public_id;
   const f = $("#rulesForm");
   for (const [k, v] of Object.entries({
@@ -1646,6 +1648,10 @@ $("#panelForm").onsubmit = run(async () => {
   await api(endpoint("settings"), {
     name: f.elements.name.value,
     notify: f.elements.notify.checked,
+    collectorUrls: $("#collectorUrl")
+      .value.split(/\r?\n/)
+      .map((url) => url.trim())
+      .filter(Boolean),
     rules: {
       ...panel().rules,
       retentionDays: Number(f.elements.retentionDays.value),
