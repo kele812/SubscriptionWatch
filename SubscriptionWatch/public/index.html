@@ -4,16 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.14" />
+    <link rel="stylesheet" href="/style.css?v=4.0.15" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.14 · 独立采集 · 风险评估</small>
+        <small>v4.0.15 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
-          <button data-tab="history" class="active">访问记录</button
+          <button data-tab="history" class="active">获取订阅记录</button
           ><button data-tab="sourceIp">来源 IP 调查</button
           ><button data-tab="destinations">用户访问记录</button
           ><span class="nav-heading">处置</span
@@ -36,7 +36,7 @@
         <header>
           <div>
             <div class="eyebrow">SUBSCRIPTION WATCH</div>
-            <h1 id="pageTitle">访问记录</h1>
+            <h1 id="pageTitle">获取订阅记录</h1>
           </div>
           <div class="toolbar">
             <select id="panelSelect" aria-label="当前面板"></select
@@ -50,7 +50,7 @@
           <p>每个面板使用独立采集密钥，规则、用户与数据分别管理。</p>
         </div>
         <div class="metrics" id="metrics">
-          <div><span>访问记录</span><strong id="metricEvents">—</strong></div>
+          <div><span>获取订阅记录</span><strong id="metricEvents">—</strong></div>
           <div><span>最近24小时</span><strong id="metricToday">—</strong></div>
           <div>
             <span>当前可疑用户</span><strong id="metricRisks">—</strong>
@@ -91,7 +91,7 @@
               class="danger-button"
               disabled
             >
-              删除所选访问记录
+              删除所选获取订阅记录
             </button>
           </div>
           <div id="historyTable"></div>
@@ -196,7 +196,7 @@
         </section>
         <section id="riskHistory" data-view hidden>
           <div class="section-heading">
-            <p>独立保留的风险评估历史，不随访问记录清空。</p>
+            <p>独立保留的风险评估历史，不随获取订阅记录清空。</p>
             <button id="clearRiskHistory" class="danger-button">
               删除全部评估历史
             </button>
@@ -204,7 +204,7 @@
           <div id="riskHistoryTable"></div>
         </section>
         <section id="whitelist" data-view hidden>
-          <p>白名单用户继续保留访问记录，但免于所有风险规则。</p>
+          <p>白名单用户继续保留获取订阅记录，但免于所有风险规则。</p>
           <form id="subjectSearch" class="filters">
             <label>用户ID或邮箱<input name="q" /></label><button>搜索</button
             ><button type="button" id="addWhite">按ID添加白名单</button>
@@ -316,7 +316,7 @@
                 max="3650"
                 required
             /></label>
-            <p>每分钟清理超过保留天数的访问记录；可疑用户和评估历史不删除。</p>
+            <p>每分钟清理超过保留天数的获取订阅记录；可疑用户和评估历史不删除。</p>
             <button>保存面板设置</button>
           </form>
 
@@ -365,12 +365,17 @@
           <form id="rulesForm" class="settings-form">
             <h2>订阅审核与可疑用户规则</h2>
             <p>
-              新请求先由风控机审核。命中拦截时只跳转本次订阅；被标记为可疑的用户持续拦截，直到手动取消。手动取消后，该用户的每日订阅次数从零重新计算，历史访问仍保留；有新异常仍会重新标记。IP归属地判断依赖已安装的数据库。
+              新请求先由风控机审核。命中规则时只跳转本次订阅；已有可疑标记是否持续拦截，由下方开关控制。手动取消标记后，该用户的每日订阅次数从零重新计算，历史访问仍保留；有新异常仍会重新标记。IP归属地判断依赖已安装的数据库。
             </p>
             <p>
               用户白名单和来源
               IP／域名白名单命中后，不受订阅风控规则限制，但仍记录访问。风控机失联或审核超时时，插件默认拒绝本次订阅；仅在手动开启失联放行开关后继续下发。
             </p>
+            <fieldset class="rule-card">
+              <legend>可疑用户禁止获取订阅</legend>
+              <label><input type="checkbox" name="blockSuspiciousUsers" />禁止已有可疑标记的用户获取订阅</label>
+              <p>默认开启。关闭后只取消“已有可疑标记”这一项拦截；客户端、地区、云服务器、IP 黑名单及每日次数等规则仍会检查。已在 Xboard 封禁的账号需单独解封。</p>
+            </fieldset>
             <fieldset class="rule-card">
               <legend>01 · 非指定客户端获取订阅</legend>
               <label><input type="checkbox" name="uaEnabled" />启用UA检查</label
@@ -557,7 +562,7 @@
                 />
               </label>
               <p>
-                默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。手动取消可疑标记后，此用户从零重新计数，旧访问记录不删除。
+                默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。手动取消可疑标记后，此用户从零重新计数，旧获取订阅记录不删除。
               </p>
             </fieldset>
             <fieldset class="rule-card">
@@ -754,13 +759,13 @@
     <dialog id="userHistoryDialog" aria-labelledby="userHistoryTitle">
       <h2 id="userHistoryTitle">用户历史记录</h2>
       <p>
-        仅显示当前面板的数据。访问记录按保留设置清理；评估和封禁记录独立保存。
+        仅显示当前面板的数据。获取订阅记录按保留设置清理；评估和封禁记录独立保存。
       </p>
       <section class="user-history-section">
         <h3>订阅访问</h3>
         <div id="userHistoryVisits"></div>
         <button id="userHistoryVisitsMore" type="button" hidden>
-          加载更多访问记录
+          加载更多获取订阅记录
         </button>
       </section>
       <section class="user-history-section">
@@ -792,6 +797,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.14"></script>
+    <script src="/app.js?v=4.0.15"></script>
   </body>
 </html>

@@ -265,7 +265,7 @@ function visitHistoryLink(label, sourcePanel, sourceUid) {
   const link = document.createElement("a");
   link.href = "#history";
   link.textContent = label;
-  link.title = "查看该用户近期的订阅访问记录";
+  link.title = "查看该用户近期的获取订阅记录";
   link.onclick = (event) => {
     event.preventDefault();
     panelId = sourcePanel;
@@ -460,7 +460,7 @@ function evidenceHint(code) {
   if (code === "ua")
     return "核查提示：UA 可修改。这条记录只说明请求使用了未列入允许名单的 UA，不能据此认定账号本人操作。";
   if (code === "cloud")
-    return "核查提示：云厂商依据 IP 数据库的组织名匹配。建议打开对应访问记录，对照直连 IP 和反代日志。";
+    return "核查提示：云厂商依据 IP 数据库的组织名匹配。建议打开对应获取订阅记录，对照直连 IP 和反代日志。";
   if (code === "blacklist")
     return "核查提示：此 IP 来自跨面板共享名单。先核对名单来源面板与加入时间，再决定是否处置。";
   return "核查提示：多个不同 IP 已成功请求同一账号订阅；这说明订阅被多处使用，不能单独证明是谁操作。";
@@ -950,7 +950,7 @@ async function enter() {
     v.hidden = v.id !== "history";
   for (const b of document.querySelectorAll("[data-tab]"))
     b.classList.toggle("active", b.dataset.tab === "history");
-  $("#pageTitle").textContent = "访问记录";
+  $("#pageTitle").textContent = "获取订阅记录";
 
   $("#app").hidden = false;
   $("#identity").textContent = me.username;
@@ -1262,7 +1262,7 @@ async function refresh() {
           "操作",
         ],
         rows.map((r) => [
-          batchCheck("history", r.id, `选择访问记录 ${r.id}`),
+          batchCheck("history", r.id, `选择获取订阅记录 ${r.id}`),
           format(r.ts),
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
@@ -1276,7 +1276,7 @@ async function refresh() {
                   button("重置次数", () =>
                     ask(
                       "确认重置该客户的24小时订阅次数",
-                      `客户 ${r.uid} / ${r.currentUser.email}。旧访问记录保留；可疑标记和 Xboard 账号封禁不会解除。`,
+                      `客户 ${r.uid} / ${r.currentUser.email}。旧获取订阅记录保留；可疑标记和 Xboard 账号封禁不会解除。`,
                       [],
                       () =>
                         api(`/api/panels/${panelId}/client-status/reset`, {
@@ -1620,8 +1620,8 @@ $("#historyBulkDelete").onclick = () => {
   const ids = [...batchSelected.history];
   if (!ids.length) return;
   ask(
-    `删除所选 ${ids.length} 条访问记录`,
-    "只删除当前面板的所选访问记录，保留可疑用户及评估历史。",
+    `删除所选 ${ids.length} 条获取订阅记录`,
+    "只删除当前面板的所选获取订阅记录，保留可疑用户及评估历史。",
     [pwd],
     async (b) => {
       await api(endpoint("history/bulk-delete"), { ...b, ids });
@@ -1768,6 +1768,7 @@ function readRuleForm() {
     "chinaEnabled",
     "foreignEnabled",
     "dcEnabled",
+    "blockSuspiciousUsers",
     "cloudflareExempt",
     "mainlandOnly",
     "reviewBlockBlacklist",

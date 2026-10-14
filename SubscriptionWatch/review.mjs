@@ -99,7 +99,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.14",
+    ruleVersion: "4.0.15",
   };
 }
 
@@ -209,9 +209,11 @@ function decide(db, panel, event, geo, now) {
   const place = geo?.lookup(event.ip) || {};
   if (rules.mainlandOnly && place.countryCode !== "CN")
     codes.push("mainland-only");
-  const active = db
-    .prepare("SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1")
-    .get(panel.id, event.user_id);
+  const active = rules.blockSuspiciousUsers
+    ? db
+        .prepare("SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1")
+        .get(panel.id, event.user_id)
+    : undefined;
   if (active) codes.push("active-risk");
   const activeReasons = active ? JSON.parse(active.reasons) : [];
   const exempt =
