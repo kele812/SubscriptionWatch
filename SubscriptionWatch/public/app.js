@@ -90,6 +90,14 @@ function visitStatusText(row) {
   if (row.delivered === 0 || row.status >= 400) return "请求失败";
   return "其他响应／未核实";
 }
+function visitStatusBadge(row) {
+  const result = visitStatusText(row);
+  const badge = document.createElement("span");
+  badge.className =
+    "visit-result " + (result === "订阅成功" ? "success" : "failure");
+  badge.textContent = result;
+  return badge;
+}
 function currentStatusLabels(user) {
   if (!user) return ["当前状态未记录"];
   if (!user.verified) return ["客户资料未核实"];
@@ -306,7 +314,7 @@ function renderUserHistory(kind) {
         format(r.ts),
         `${r.ip || "—"}\n${geoText(r.geo || {})}`,
         r.ua || "（空）",
-        visitStatusText(r),
+        visitStatusBadge(r),
       ];
     if (kind === "risks")
       return [
@@ -671,7 +679,13 @@ function detail(data) {
     } else if (data.结果 !== "订阅成功") {
       statusLine += ` · ${data.请求响应 === "请求成功" ? "请求完成，但未返回订阅内容" : `请求响应：${data.请求响应 || "未知"}`}`;
     }
-    line(card, statusLine);
+    line(
+      card,
+      statusLine,
+      data.结果 === "订阅成功"
+        ? "visit-result-text success"
+        : "visit-result-text failure",
+    );
     if (data.当前状态) line(card, `当前状态：${data.当前状态}`);
     line(card, `订阅内容：${data.订阅内容}`);
     line(card, `UA：${data.原始UA || "（空）"}`);
@@ -963,7 +977,7 @@ async function refresh() {
             format(r.ts),
             r.panel_name,
             `${r.uid} / ${r.email}`,
-            visitStatusText(r),
+            visitStatusBadge(r),
             button("核查链路", () => detail(sourceTraceDetail(r))),
           ]),
         );
@@ -1168,7 +1182,7 @@ async function refresh() {
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
-          visitStatusText(r),
+          visitStatusBadge(r),
           currentStatusCell(r.currentUser),
           actions(
             button("查看", () => detail(sourceTraceDetail(r))),

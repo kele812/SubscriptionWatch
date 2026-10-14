@@ -465,6 +465,26 @@ td:nth-child(4) {
   background: #3c1d31;
   color: var(--pink);
 }
+.visit-result {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.visit-result.success {
+  background: #12382f;
+  color: #8ff0c7;
+}
+.visit-result.failure {
+  background: #401a28;
+  color: #ff8093;
+}
+.visit-result-text.success {
+  color: #8ff0c7;
+}
+.visit-result-text.failure {
+  color: #ff8093;
+}
 .client-states {
   display: flex;
   flex-wrap: wrap;

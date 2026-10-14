@@ -99,7 +99,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.10",
+    ruleVersion: "4.0.11",
   };
 }
 
@@ -207,10 +207,8 @@ function decide(db, panel, event, geo, now) {
   )
     codes.push("daily-limit");
   const place = geo?.lookup(event.ip) || {};
-  if (rules.mainlandOnly && place.countryCode !== "CN") {
+  if (rules.mainlandOnly && place.countryCode !== "CN")
     codes.push("mainland-only");
-    return { codes, redirect: rules.reviewRedirectUrl };
-  }
   const active = db
     .prepare("SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1")
     .get(panel.id, event.user_id);
