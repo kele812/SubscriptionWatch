@@ -98,6 +98,20 @@ function visitStatusBadge(row) {
   badge.textContent = result;
   return badge;
 }
+function visitResultCell(row) {
+  if (row.ip_whitelisted !== 1) return visitStatusBadge(row);
+  const result = document.createElement("span");
+  result.className = "visit-result-group";
+  result.append(visitStatusBadge(row));
+  const note = document.createElement("span");
+  note.className = "visit-whitelist-note";
+  note.textContent =
+    visitStatusText(row) === "订阅成功"
+      ? "通过 IP／域名白名单订阅"
+      : "本次命中 IP／域名白名单";
+  result.append(note);
+  return result;
+}
 function currentStatusLabels(user) {
   if (!user) return ["当前状态未记录"];
   if (!user.verified) return ["客户资料未核实"];
@@ -314,7 +328,7 @@ function renderUserHistory(kind) {
         format(r.ts),
         `${r.ip || "—"}\n${geoText(r.geo || {})}`,
         r.ua || "（空）",
-        visitStatusBadge(r),
+        visitResultCell(r),
       ];
     if (kind === "risks")
       return [
@@ -412,6 +426,7 @@ function sourceTraceDetail(r) {
     反代已核验: r.proxy_verified,
     原始UA: r.ua,
     结果: visitStatusText(r),
+    本次IP白名单: r.ip_whitelisted,
     当前状态: r.currentUser ? currentStatusText(r.currentUser) : null,
     请求响应: requestStatusText(r.status),
     触发规则: r.review_reasons,
@@ -676,6 +691,14 @@ function detail(data) {
         ? "visit-result-text success"
         : "visit-result-text failure",
     );
+    if (data.本次IP白名单 === 1)
+      line(
+        card,
+        data.结果 === "订阅成功"
+          ? "订阅方式：通过 IP／域名白名单放行"
+          : "本次命中 IP／域名白名单",
+        "visit-whitelist-detail",
+      );
     if (data.结果 === "规则拦截跳转") {
       let reasons = [];
       try {
@@ -995,7 +1018,7 @@ async function refresh() {
             format(r.ts),
             r.panel_name,
             `${r.uid} / ${r.email}`,
-            visitStatusBadge(r),
+            visitResultCell(r),
             button("核查链路", () => detail(sourceTraceDetail(r))),
           ]),
         );
@@ -1200,7 +1223,7 @@ async function refresh() {
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
           r.ua || "（空）",
-          visitStatusBadge(r),
+          visitResultCell(r),
           currentStatusCell(r.currentUser),
           actions(
             button("查看", () => detail(sourceTraceDetail(r))),

@@ -99,7 +99,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.12",
+    ruleVersion: "4.0.13",
   };
 }
 

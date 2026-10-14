@@ -97,6 +97,7 @@ export function migrateRiskV33(db) {
     CREATE TABLE IF NOT EXISTS ban_actions(id INTEGER PRIMARY KEY,panel INTEGER REFERENCES panels(id) ON DELETE CASCADE,uid INTEGER,episode INTEGER,status TEXT,message TEXT,created INTEGER,updated INTEGER,UNIQUE(panel,uid,episode));`);
 }
 export function migrateRequestEvidence(db) {
+  let addedVisitWhitelistColumn = false;
   for (const [table, columns] of [
     [
       "visits",
@@ -107,6 +108,7 @@ export function migrateRequestEvidence(db) {
         ["delivered", "INTEGER"],
         ["review_blocked", "INTEGER"],
         ["review_reasons", "TEXT"],
+        ["ip_whitelisted", "INTEGER"],
       ],
     ],
     [
@@ -134,8 +136,11 @@ export function migrateRequestEvidence(db) {
         .map((c) => c.name),
     );
     for (const [name, type] of columns)
-      if (!existing.has(name))
+      if (!existing.has(name)) {
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+        if (table === "visits" && name === "ip_whitelisted")
+          addedVisitWhitelistColumn = true;
+      }
   }
   if (
     db
@@ -161,6 +166,12 @@ export function migrateRequestEvidence(db) {
       .some((column) => column.name === "ip_whitelisted")
   )
     db.exec("ALTER TABLE review_decisions ADD COLUMN ip_whitelisted INTEGER");
+  if (addedVisitWhitelistColumn)
+    db.exec(`UPDATE visits SET ip_whitelisted=1
+      WHERE event_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM review_decisions d
+        WHERE d.panel=visits.panel AND d.event_id=visits.event_id AND d.ip_whitelisted=1
+      )`);
   db.exec("CREATE INDEX IF NOT EXISTS visit_source_time ON visits(ip,ts DESC)");
   const blacklistColumns = new Set(
     db
