@@ -29,8 +29,10 @@ class Plugin extends AbstractPlugin
             } catch (ReviewUnavailable $e) {
                 // Only transport errors, timeouts and exhausted 5xx failover may use this option.
                 if (filter_var($options['fail_open'] ?? false, FILTER_VALIDATE_BOOLEAN)) return;
+                $collector->markFailure(request(), 'review-unavailable');
                 $decision = ['allow' => false, 'redirect' => null];
             } catch (\UnexpectedValueException $e) {
+                $collector->markFailure(request(), 'review-invalid');
                 static $lastWarningAt = 0;
                 if (time() - $lastWarningAt >= 60) {
                     $lastWarningAt = time();
@@ -39,6 +41,7 @@ class Plugin extends AbstractPlugin
                 $decision = ['allow' => false, 'redirect' => null];
             } catch (\Throwable $e) {
                 // Never deliver a subscription when risk review is unavailable.
+                $collector->markFailure(request(), 'review-error');
                 $decision = ['allow' => false, 'redirect' => null];
             }
             if (!$decision['allow']) {

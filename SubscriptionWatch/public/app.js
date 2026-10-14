@@ -98,18 +98,69 @@ function visitStatusBadge(row) {
   badge.textContent = result;
   return badge;
 }
+function reviewReasonLabels(raw) {
+  try {
+    const reasons = JSON.parse(raw || "[]");
+    return Array.isArray(reasons)
+      ? reasons.filter((reason) => typeof reason === "string" && reason)
+      : [];
+  } catch {
+    return [];
+  }
+}
+function visitFailureReason(row) {
+  const known = {
+    "review-unavailable":
+      "风控后台连接失败、超时或服务异常，插件拒绝本次订阅",
+    "review-invalid":
+      "风控后台拒绝审核请求或响应校验失败，插件拒绝本次订阅",
+    "review-error": "风控审核发生异常，插件拒绝本次订阅",
+  };
+  if (known[row.failure_code]) return known[row.failure_code];
+  if (row.status >= 200 && row.status < 300 && row.delivered === 0) {
+    if (String(row.content_type || "").includes("text/html"))
+      return "返回的是网页，不是订阅内容";
+    if (row.bytes === 0) return "返回内容为空，没有下发订阅";
+    return "未确认下发订阅，具体原因未记录";
+  }
+  if (row.status >= 300 && row.status < 400)
+    return "服务器返回跳转，未确认下发订阅；跳转目标未记录";
+  if (row.status >= 400)
+    return `${requestStatusText(row.status)}；服务器未上报更具体的原因`;
+  return "旧记录未核实是否下发订阅，无法确认失败原因";
+}
+function visitOutcomeReasons(row) {
+  const result = visitStatusText(row);
+  if (result === "规则拦截跳转") {
+    const reasons = reviewReasonLabels(row.review_reasons);
+    return reasons.length
+      ? reasons.map((reason) => `拦截原因：${reason}`)
+      : ["拦截原因：旧记录未保存具体规则"];
+  }
+  if (result === "订阅成功") return [];
+  return [`${result === "请求失败" ? "失败原因" : "说明"}：${visitFailureReason(row)}`];
+}
 function visitResultCell(row) {
-  if (row.ip_whitelisted !== 1) return visitStatusBadge(row);
+  const reasons = visitOutcomeReasons(row);
+  if (row.ip_whitelisted !== 1 && !reasons.length) return visitStatusBadge(row);
   const result = document.createElement("span");
   result.className = "visit-result-group";
   result.append(visitStatusBadge(row));
-  const note = document.createElement("span");
-  note.className = "visit-whitelist-note";
-  note.textContent =
-    visitStatusText(row) === "订阅成功"
-      ? "通过 IP／域名白名单订阅"
-      : "本次命中 IP／域名白名单";
-  result.append(note);
+  for (const reason of reasons) {
+    const note = document.createElement("small");
+    note.className = "visit-result-reason";
+    note.textContent = reason;
+    result.append(note);
+  }
+  if (row.ip_whitelisted === 1) {
+    const note = document.createElement("span");
+    note.className = "visit-whitelist-note";
+    note.textContent =
+      visitStatusText(row) === "订阅成功"
+        ? "通过 IP／域名白名单订阅"
+        : "本次命中 IP／域名白名单";
+    result.append(note);
+  }
   return result;
 }
 function currentStatusLabels(user) {
@@ -430,6 +481,7 @@ function sourceTraceDetail(r) {
     当前状态: r.currentUser ? currentStatusText(r.currentUser) : null,
     请求响应: requestStatusText(r.status),
     触发规则: r.review_reasons,
+    失败原因: visitFailureReason(r),
     订阅内容:
       r.delivered === 1
         ? "已返回订阅内容"
@@ -700,13 +752,7 @@ function detail(data) {
         "visit-whitelist-detail",
       );
     if (data.结果 === "规则拦截跳转") {
-      let reasons = [];
-      try {
-        reasons = JSON.parse(data.触发规则 || "[]");
-      } catch {}
-      reasons = Array.isArray(reasons)
-        ? reasons.filter((reason) => typeof reason === "string" && reason)
-        : [];
+      const reasons = reviewReasonLabels(data.触发规则);
       line(card, `拦截原因（${reasons.length} 条）：`, "visit-result-text failure");
       const list = document.createElement("ul");
       list.className = "visit-block-reasons";
@@ -721,9 +767,7 @@ function detail(data) {
     } else if (data.结果 !== "订阅成功") {
       line(
         card,
-        data.请求响应 === "请求成功"
-          ? "请求完成，但未返回订阅内容"
-          : `请求响应：${data.请求响应 || "未知"}`,
+        `${data.结果 === "请求失败" ? "失败原因" : "说明"}：${data.失败原因 || "具体原因未记录"}`,
         "visit-result-text failure",
       );
     }

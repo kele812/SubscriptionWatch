@@ -119,6 +119,15 @@ class Collector
         return ['allow' => true, 'redirect' => null];
     }
 
+    public function markFailure($request, string $code): void
+    {
+        if (!in_array($code, ['review-unavailable', 'review-invalid', 'review-error'], true)) return;
+        $capture = $request->attributes->get(self::MARKER);
+        if (!$capture) return;
+        $capture['event']['failure_code'] = $code;
+        $request->attributes->set(self::MARKER, $capture);
+    }
+
     public static function handled($handled): void
     {
         try {
@@ -152,7 +161,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '4.0.13', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '4.0.14', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Endpoints::post(

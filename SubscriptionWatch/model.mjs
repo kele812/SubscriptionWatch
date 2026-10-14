@@ -109,6 +109,7 @@ export function migrateRequestEvidence(db) {
         ["review_blocked", "INTEGER"],
         ["review_reasons", "TEXT"],
         ["ip_whitelisted", "INTEGER"],
+        ["failure_code", "TEXT"],
       ],
     ],
     [

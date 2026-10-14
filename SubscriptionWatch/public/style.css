@@ -479,16 +479,27 @@ td:nth-child(4) {
   background: #401a28;
   color: #ff8093;
 }
-  .visit-result-group {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
-  }
-  .visit-whitelist-note,
-  .visit-whitelist-detail {
-    color: var(--muted);
-  }
+.visit-result-group {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.visit-result-reason {
+  color: #ff9aac;
+  line-height: 1.5;
+  white-space: normal;
+}
+.visit-whitelist-note,
+.visit-whitelist-detail {
+  color: var(--muted);
+}
+#historyTable th:nth-child(6),
+#historyTable td:nth-child(6) {
+  min-width: 280px;
+  width: 24%;
+  max-width: 420px;
+}
 .visit-result-text.success {
   color: #8ff0c7;
 }
