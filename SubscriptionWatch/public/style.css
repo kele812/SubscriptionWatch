@@ -485,6 +485,12 @@ td:nth-child(4) {
 .visit-result-text.failure {
   color: #ff8093;
 }
+.visit-block-reasons {
+  margin: 0 0 12px;
+  padding-left: 26px;
+  color: #ff8093;
+  line-height: 1.6;
+}
 .client-states {
   display: flex;
   flex-wrap: wrap;

@@ -669,23 +669,41 @@ function detail(data) {
           : "通过哪里反代：未记录外部反代（无法判断是否直连）",
       "evidence-summary",
     );
-    let statusLine = `结果：${data.结果}`;
+    line(
+      card,
+      `结果：${data.结果}`,
+      data.结果 === "订阅成功"
+        ? "visit-result-text success"
+        : "visit-result-text failure",
+    );
     if (data.结果 === "规则拦截跳转") {
       let reasons = [];
       try {
         reasons = JSON.parse(data.触发规则 || "[]");
       } catch {}
-      statusLine += ` · 触发规则：${Array.isArray(reasons) && reasons.length ? reasons.join("、") : "旧记录未保存具体规则"}`;
+      reasons = Array.isArray(reasons)
+        ? reasons.filter((reason) => typeof reason === "string" && reason)
+        : [];
+      line(card, `拦截原因（${reasons.length} 条）：`, "visit-result-text failure");
+      const list = document.createElement("ul");
+      list.className = "visit-block-reasons";
+      for (const reason of reasons.length
+        ? reasons
+        : ["旧记录未保存具体规则，无法补全当时的拦截原因"]) {
+        const item = document.createElement("li");
+        item.textContent = reason;
+        list.append(item);
+      }
+      card.append(list);
     } else if (data.结果 !== "订阅成功") {
-      statusLine += ` · ${data.请求响应 === "请求成功" ? "请求完成，但未返回订阅内容" : `请求响应：${data.请求响应 || "未知"}`}`;
+      line(
+        card,
+        data.请求响应 === "请求成功"
+          ? "请求完成，但未返回订阅内容"
+          : `请求响应：${data.请求响应 || "未知"}`,
+        "visit-result-text failure",
+      );
     }
-    line(
-      card,
-      statusLine,
-      data.结果 === "订阅成功"
-        ? "visit-result-text success"
-        : "visit-result-text failure",
-    );
     if (data.当前状态) line(card, `当前状态：${data.当前状态}`);
     line(card, `订阅内容：${data.订阅内容}`);
     line(card, `UA：${data.原始UA || "（空）"}`);

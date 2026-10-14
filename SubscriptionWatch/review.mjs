@@ -99,7 +99,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.11",
+    ruleVersion: "4.0.12",
   };
 }
 
@@ -213,13 +213,16 @@ function decide(db, panel, event, geo, now) {
     .prepare("SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1")
     .get(panel.id, event.user_id);
   if (active) codes.push("active-risk");
+  const activeReasons = active ? JSON.parse(active.reasons) : [];
   const exempt =
     rules.cloudflareExempt && /\bcloudflare\b/i.test(place.organization || "");
-  if (exempt || active)
+  // Cloudflare's exemption skips the remaining rules, but an existing risk
+  // must not hide other reasons that also block this request.
+  if (exempt)
     return {
       codes,
       redirect: rules.reviewRedirectUrl,
-      activeReasons: active ? JSON.parse(active.reasons) : [],
+      activeReasons,
     };
 
   if (
@@ -324,7 +327,7 @@ function decide(db, panel, event, geo, now) {
         collectBlacklistedIPs(db, panel, event.user_id, rows, now);
     }
   }
-  return { codes, redirect: rules.reviewRedirectUrl };
+  return { codes, redirect: rules.reviewRedirectUrl, activeReasons };
 }
 
 export async function receiveReview(req, res, { db, decrypt, geo }) {
