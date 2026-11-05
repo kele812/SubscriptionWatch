@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.15" />
+    <link rel="stylesheet" href="/style.css?v=4.0.16" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.15 · 独立采集 · 风险评估</small>
+        <small>v4.0.16 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -50,7 +50,9 @@
           <p>每个面板使用独立采集密钥，规则、用户与数据分别管理。</p>
         </div>
         <div class="metrics" id="metrics">
-          <div><span>获取订阅记录</span><strong id="metricEvents">—</strong></div>
+          <div>
+            <span>获取订阅记录</span><strong id="metricEvents">—</strong>
+          </div>
           <div><span>最近24小时</span><strong id="metricToday">—</strong></div>
           <div>
             <span>当前可疑用户</span><strong id="metricRisks">—</strong>
@@ -293,9 +295,17 @@
           <div class="settings-block">
             <h2>插件接入</h2>
             <p>
-              在对应 Xboard 安装采集插件。多个地址须指向同一台风控后台，按优先顺序每行填写一个 HTTPS 域名，最多5个。保存后还须在插件中用英文逗号填写同一组地址；这里的修改不会自动同步到插件。所有地址都不可用时，由插件的“风控后台失联时继续下发”开关决定，默认拒绝。
+              在对应 Xboard
+              安装采集插件。多个地址须指向同一台风控后台，按优先顺序每行填写一个
+              HTTPS
+              域名，最多5个。保存后还须在插件中用英文逗号填写同一组地址；这里的修改不会自动同步到插件。所有地址都不可用时，由插件的“风控后台失联时继续下发”开关决定，默认拒绝。
             </p>
-            <label>风控后台地址（每行一个）<textarea id="collectorUrl" rows="3" spellcheck="false"></textarea></label
+            <label
+              >风控后台地址（每行一个）<textarea
+                id="collectorUrl"
+                rows="3"
+                spellcheck="false"
+              ></textarea></label
             ><label>面板标识<input id="publicId" readonly /></label
             ><button id="showKey">显示采集密钥</button
             ><input id="collectorKey" readonly hidden aria-label="采集密钥" />
@@ -316,7 +326,9 @@
                 max="3650"
                 required
             /></label>
-            <p>每分钟清理超过保留天数的获取订阅记录；可疑用户和评估历史不删除。</p>
+            <p>
+              每分钟清理超过保留天数的获取订阅记录；可疑用户和评估历史不删除。
+            </p>
             <button>保存面板设置</button>
           </form>
 
@@ -373,8 +385,17 @@
             </p>
             <fieldset class="rule-card">
               <legend>可疑用户禁止获取订阅</legend>
-              <label><input type="checkbox" name="blockSuspiciousUsers" />禁止已有可疑标记的用户获取订阅</label>
-              <p>默认开启。关闭后只取消“已有可疑标记”这一项拦截；客户端、地区、云服务器、IP 黑名单及每日次数等规则仍会检查。已在 Xboard 封禁的账号需单独解封。</p>
+              <label
+                ><input
+                  type="checkbox"
+                  name="blockSuspiciousUsers"
+                />禁止已有可疑标记的用户获取订阅</label
+              >
+              <p>
+                默认开启。关闭后只取消“已有可疑标记”这一项拦截；客户端、地区、云服务器、IP
+                黑名单及每日次数等规则仍会检查。已在 Xboard
+                封禁的账号需单独解封。
+              </p>
             </fieldset>
             <fieldset class="rule-card">
               <legend>01 · 非指定客户端获取订阅</legend>
@@ -588,7 +609,9 @@
                 开启后，来源 IP 不属于中国大陆且未命中用户白名单或下方
                 IP／域名白名单时，本次订阅直接跳转，不标记可疑用户。中国大陆 IP
                 仍需通过其他规则；归属地未知按非中国大陆处理。Cloudflare
-                豁免不能绕过此限制。若要严格执行，Xboard 插件中的“风控后台失联时继续下发”必须保持关闭。
+                豁免开启且客户来源 IP 被识别为 Cloudflare
+                时，跳过此地区限制。若要严格执行，Xboard
+                插件中的“风控后台失联时继续下发”必须保持关闭。
               </p>
             </fieldset>
             <fieldset class="rule-card">
@@ -599,11 +622,17 @@
                   rows="5"
                 ></textarea></label
               ><label
-                ><input
-                  type="checkbox"
-                  name="cloudflareExempt"
-                />不检查来自Cloudflare的订阅请求</label
+                ><input type="checkbox" name="cloudflareExempt" />Cloudflare
+                来源仅检查 UA 和每日次数</label
               >
+              <p>
+                开启 Cloudflare 豁免后，按客户来源 IP
+                的归属机构识别，仍执行已启用的 UA
+                检查和滚动24小时次数上限；成功与规则拦截请求均登记计数。跳过地区限制、已有可疑标记、云服务器
+                IP、IP 黑名单及多 IP 阈值检查，不会清除已有可疑标记。网站使用
+                Cloudflare 反代不代表客户来源一定属于 Cloudflare。用户及
+                IP／域名白名单仍优先跳过所有规则；历史记录保留原拦截原因，修改只影响新审核。
+              </p>
               <p class="evidence-exempt">
                 例如：1.2.3.4 # 自有节点，或 vpn.example.com #
                 备用出口。域名由风控机定时解析
@@ -797,6 +826,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.15"></script>
+    <script src="/app.js?v=4.0.16"></script>
   </body>
 </html>

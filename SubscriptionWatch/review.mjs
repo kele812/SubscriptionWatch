@@ -99,7 +99,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.15",
+    ruleVersion: "4.0.16",
   };
 }
 
@@ -207,26 +207,20 @@ function decide(db, panel, event, geo, now) {
   )
     codes.push("daily-limit");
   const place = geo?.lookup(event.ip) || {};
-  if (rules.mainlandOnly && place.countryCode !== "CN")
-    codes.push("mainland-only");
-  const active = rules.blockSuspiciousUsers
-    ? db
-        .prepare("SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1")
-        .get(panel.id, event.user_id)
-    : undefined;
-  if (active) codes.push("active-risk");
-  const activeReasons = active ? JSON.parse(active.reasons) : [];
   const exempt =
     rules.cloudflareExempt && /\bcloudflare\b/i.test(place.organization || "");
-  // Cloudflare's exemption skips the remaining rules, but an existing risk
-  // must not hide other reasons that also block this request.
-  if (exempt)
-    return {
-      codes,
-      redirect: rules.reviewRedirectUrl,
-      activeReasons,
-    };
-
+  if (!exempt && rules.mainlandOnly && place.countryCode !== "CN")
+    codes.push("mainland-only");
+  const active =
+    !exempt && rules.blockSuspiciousUsers
+      ? db
+          .prepare(
+            "SELECT reasons FROM risks WHERE panel=? AND uid=? AND active=1",
+          )
+          .get(panel.id, event.user_id)
+      : undefined;
+  if (active) codes.push("active-risk");
+  const activeReasons = active ? JSON.parse(active.reasons) : [];
   if (
     rules.uaEnabled &&
     !rules.uaKeywords.some((word) =>
@@ -235,6 +229,9 @@ function decide(db, panel, event, geo, now) {
   ) {
     codes.push("ua");
   }
+  // Cloudflare bypasses other rules, but UA checks and daily limits still apply.
+  if (exempt)
+    return { codes, redirect: rules.reviewRedirectUrl, activeReasons };
   if (
     rules.dcEnabled &&
     rules.dcKeywords.some((word) =>

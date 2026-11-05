@@ -1,10 +1,10 @@
-# SubscriptionWatch v4.0.15
+# SubscriptionWatch v4.0.16
 
 每个面板的“插件接入”可保存最多5个指向同一风控机的 HTTPS 地址，按优先顺序排列。保存后，还需在 Xboard 采集插件中用英文逗号填写同一组地址，并在 XBnpp 节点上配置备用地址。连接失败、超时或服务器5xx时才切换；认证失败、签名错误不切换。所有地址不可用时，由插件的“风控后台失联时继续下发”开关决定是否下发，默认关闭（拒绝）。
 
 ## 上传插件
 
-后台和采集插件统一为 **v4.0.15**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.15.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.15.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。访问记录同时展示“结果”（这次请求）和“当前状态”（该用户现在是否可疑、是否达到24小时请求上限，以及已计入次数和下一次序号）；本次请求通过 IP／域名白名单订阅时，列表和详情会单独标注，当前状态仍显示近24小时白名单次数。升级时能从留存的审核结果补标旧记录；找不到审核结果的旧记录不猜测。可在该行单独重置用户24小时计数，访问历史和可疑标记保留。同一次请求会检查完所有适用规则，访问详情逐条列出本次拦截原因；用户、IP／域名白名单及 Cloudflare 豁免范围保持原设置。
+后台和采集插件统一为 **v4.0.16**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.16.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.16.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。访问记录同时展示“结果”（这次请求）和“当前状态”（该用户现在是否可疑、是否达到24小时请求上限，以及已计入次数和下一次序号）；本次请求通过 IP／域名白名单订阅时，列表和详情会单独标注，当前状态仍显示近24小时白名单次数。升级时能从留存的审核结果补标旧记录；找不到审核结果的旧记录不猜测。可在该行单独重置用户24小时计数，访问历史和可疑标记保留。同一次请求会检查完所有适用规则，访问详情逐条列出本次拦截原因；用户及 IP／域名白名单仍优先豁免所有规则；Cloudflare 豁免按下述新范围执行。
 
 访问记录的“结果”栏已加宽：规则拦截时逐条列出命中规则；请求失败时显示能确认的原因。新版插件会用固定类别上报风控审核失联、响应校验失败等插件拒绝原因，不上传错误正文。其他失败只按响应状态、内容类型和是否返回订阅解释；若证据不足，则明确显示“具体原因未记录”。旧记录不会被推断为某种插件故障。
 
@@ -49,3 +49,8 @@ git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele
 2. 为网站申请 SSL，启用 HTTPS。
 3. 添加反向代理，目标地址填 `http://127.0.0.1:18080`，关闭代理缓存。
 4. 浏览器打开 `https://你的域名`，首次访问创建账号密码，再添加 Xboard 面板并配置插件。
+
+
+## 4.0.16 Cloudflare 豁免调整
+
+开启 Cloudflare 豁免后，仅对客户来源 IP 归属机构为 Cloudflare 的请求跳过地区限制、已有可疑标记、云服务器、黑名单及多 IP 阈值检查；仍执行已启用的 UA 检查和滚动24小时次数上限，成功与规则拦截均登记计数。已有可疑标记不被清除，历史记录不改写；网站套 Cloudflare 不等于客户 IP 命中豁免。用户及 IP／域名白名单仍优先豁免所有规则。
