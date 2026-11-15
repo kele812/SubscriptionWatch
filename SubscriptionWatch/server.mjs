@@ -49,8 +49,13 @@ import { receiveReview } from "./review.mjs";
 import {
   initSubscriptionOrigins,
   saveSubscriptionOrigin,
+  deleteSubscriptionOrigin,
   subscriptionOriginRows,
   receiveSubscriptionOrigin,
+  receiveSubscriptionOriginSync,
+  saveSubscriptionOriginPush,
+  pushSubscriptionOrigins,
+  lookupSubscriptionOrigin,
   subscriptionOriginOptions,
   saveSubscriptionOriginOptions,
 } from "./subscription-origins.mjs";
@@ -429,6 +434,11 @@ export function createApp({
         return await receiveReview(req, res, { db, decrypt, geo });
       if (method === "POST" && route === "/api/collector/subscription-origin")
         return await receiveSubscriptionOrigin(req, res, { db, decrypt });
+      if (
+        method === "POST" &&
+        route === "/api/collector/subscription-origin-sync"
+      )
+        return await receiveSubscriptionOriginSync(req, res, { db, decrypt });
       if (method !== "GET" && req.headers["x-watch-request"] !== "1")
         fail(403, "请求校验失败");
       if (method === "POST" && ["/api/setup", "/api/login"].includes(route)) {
@@ -1006,8 +1016,46 @@ export function createApp({
             200,
             subscriptionOriginRows(db, id, u.searchParams.get("q") || "", page),
           );
-        if (action === "subscription-origins" && method === "POST")
-          return json(res, 200, saveSubscriptionOrigin(db, id, b));
+        if (action === "subscription-origins" && method === "POST") {
+          const result = saveSubscriptionOrigin(db, id, b);
+          return json(res, 200, {
+            ...result,
+            sync: await pushSubscriptionOrigins(
+              { db, decrypt, fetcher },
+              panel,
+            ),
+          });
+        }
+        if (action === "subscription-origins/delete" && method === "POST") {
+          const result = deleteSubscriptionOrigin(db, id, b);
+          return json(res, 200, {
+            ...result,
+            sync: await pushSubscriptionOrigins(
+              { db, decrypt, fetcher },
+              panel,
+            ),
+          });
+        }
+        if (action === "subscription-origins/sync" && method === "POST") {
+          saveSubscriptionOriginPush(db, id, b.xboard_url);
+          return json(res, 200, {
+            ok: true,
+            sync: await pushSubscriptionOrigins(
+              { db, decrypt, fetcher },
+              panel,
+            ),
+          });
+        }
+        if (action === "subscription-origins/lookup" && method === "POST")
+          return json(
+            res,
+            200,
+            await lookupSubscriptionOrigin(
+              { db, decrypt, fetcher },
+              panel,
+              b.query,
+            ),
+          );
         if (action === "subscription-origins/options" && method === "GET")
           return json(res, 200, subscriptionOriginOptions(db, id));
         if (action === "subscription-origins/options" && method === "POST")
@@ -1369,7 +1417,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.18 ready");
+  console.log("Subscription Watch v4.0.19 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

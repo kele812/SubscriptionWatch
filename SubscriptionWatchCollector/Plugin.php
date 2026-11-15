@@ -13,6 +13,7 @@ require_once __DIR__ . '/Services/Endpoints.php';
 require_once __DIR__ . '/Services/Buffer.php';
 require_once __DIR__ . '/Services/Control.php';
 require_once __DIR__ . '/Services/SubscriptionOrigin.php';
+require_once __DIR__ . '/Services/OriginStore.php';
 
 class Plugin extends AbstractPlugin
 {
@@ -74,6 +75,7 @@ class Plugin extends AbstractPlugin
         $options = $this->getConfig();
         // No Laravel queue jobs or cache locks: those can fall back to SQL on some installs.
         $schedule->call(function () use ($options) {
+            try { (new \Plugin\SubscriptionWatchCollector\Services\OriginStore($options))->poll(); } catch (\Throwable $e) {}
             try { (new Collector($options))->flush(); } catch (\Throwable $e) {}
             try { (new \Plugin\SubscriptionWatchCollector\Services\Control($options))->poll(); } catch (\Throwable $e) {}
         })->everyMinute()->name('subscription-watch-collector');

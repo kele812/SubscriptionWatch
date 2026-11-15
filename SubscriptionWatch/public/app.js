@@ -826,12 +826,13 @@ function ask(title, help, fields, fn) {
 }
 const pwd = { name: "password", label: "当前登录账号的密码", type: "password" };
 $("#actionForm").onsubmit = run(async () => {
+  let result;
   const fn = pendingAction;
   const submit = $("#actionForm").querySelector('button[type="submit"]');
   if (submit.disabled) return;
   submit.disabled = true;
   try {
-    await fn(Object.fromEntries(new FormData($("#actionForm"))));
+    result = await fn(Object.fromEntries(new FormData($("#actionForm"))));
   } catch (e) {
     $("#actionError").textContent = e.message;
     return;
@@ -840,7 +841,7 @@ $("#actionForm").onsubmit = run(async () => {
   }
   $("#actionDialog").close();
   $("#actionForm").reset();
-  toast("操作完成");
+  toast(result?.sync?.message || "操作完成");
   await refresh();
 });
 $("#cancelAction").onclick = () => $("#actionDialog").close();
@@ -1274,6 +1275,17 @@ async function refresh() {
       );
       rows = d.rows;
       const id = panelId;
+      const syncInput = $("#subscriptionOriginSyncForm").elements.xboard_url;
+      if (
+        syncInput.dataset.panel !== String(id) ||
+        syncInput.dataset.dirty !== "1"
+      ) {
+        if (syncInput.dataset.panel !== String(id))
+          $("#subscriptionOriginLookupBox").hidden = true;
+        syncInput.value = d.sync.xboard_url;
+        syncInput.dataset.panel = String(id);
+        delete syncInput.dataset.dirty;
+      }
       table(
         "#subscriptionOriginTable",
         [
@@ -1281,7 +1293,7 @@ async function refresh() {
           "指定订阅域名",
           "状态",
           "修改时间",
-          "最近插件查询",
+          "最近同步联系",
           "操作",
         ],
         d.rows.map((row) => [
@@ -1289,34 +1301,29 @@ async function refresh() {
           row.origin || "使用 Xboard 站点默认地址",
           row.state,
           format(row.updated),
-          format(row.last_checked),
+          format(d.sync.last_contact),
           actions(
             button(row.origin ? "编辑" : "重新指定", () =>
               editSubscriptionOrigin(row, id),
             ),
-            ...(row.origin
-              ? [
-                  button("恢复默认", () =>
-                    ask(
-                      "恢复此客户的默认订阅地址",
-                      `客户 ${row.uid} / ${row.email}。客户下次刷新 Xboard 订阅信息时使用站点默认地址，修改记录仍会保留。`,
-                      [],
-                      () =>
-                        api(`/api/panels/${id}/subscription-origins`, {
-                          uid: row.uid,
-                          email: row.email,
-                          origin: null,
-                          revision: row.revision,
-                        }),
-                    ),
-                  ),
-                ]
-              : []),
+            button("删除", () =>
+              ask(
+                "删除此客户的指定订阅设置",
+                `客户 ${row.uid} / ${row.email}。删除后从此列表移除，同步成功后刷新 Xboard 订阅信息恢复默认地址。客户账号和备选地址不受影响。同步失败时本地旧设置暂时保留。`,
+                [],
+                () =>
+                  api(`/api/panels/${id}/subscription-origins/delete`, {
+                    uid: row.uid,
+                    email: row.email,
+                    revision: row.revision,
+                  }),
+              ),
+            ),
           ),
         ]),
       );
       $("#subscriptionOriginCount").textContent =
-        `共 ${d.total} 名已修改客户（包含已恢复默认）`;
+        `共 ${d.total} 条指定订阅设置 · ${d.sync.state}${d.sync.error && d.sync.state !== "已同步到 Xboard" ? " · " + d.sync.error : ""}`;
       $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;
     }
     if (panelId && tab === "history") {
@@ -1984,6 +1991,21 @@ function editSubscriptionOrigin(row = null, id = panelId) {
   }
 }
 $("#addSubscriptionOrigin").onclick = () => editSubscriptionOrigin();
+$("#subscriptionOriginSyncForm").elements.xboard_url.oninput = (e) => {
+  e.target.dataset.dirty = "1";
+};
+$("#subscriptionOriginSyncForm").onsubmit = run(async () => {
+  const id = panelId;
+  if (!id) return;
+  const input = $("#subscriptionOriginSyncForm").elements.xboard_url;
+  if (input.dataset.panel !== String(id)) throw Error("请等待面板加载完成");
+  const result = await api(`/api/panels/${id}/subscription-origins/sync`, {
+    xboard_url: input.value.trim(),
+  });
+  if (input.dataset.panel === String(id)) delete input.dataset.dirty;
+  toast(result.sync.message);
+  await refresh();
+});
 $("#subscriptionOriginOptionsForm").elements.origins.oninput = (e) => {
   e.target.dataset.dirty = "1";
 };
@@ -2006,6 +2028,45 @@ $("#subscriptionOriginOptionsForm").onsubmit = run(async () => {
 });
 $("#subscriptionOriginFilters").onsubmit = run(async (e) => {
   page = 1;
+  const id = panelId,
+    query = $("#subscriptionOriginFilters").elements.q.value.trim();
+  $("#subscriptionOriginLookupBox").hidden = true;
+  if (id && /^(?:[1-9][0-9]{0,14}|[^\s@]+@[^\s@]+)$/u.test(query)) {
+    const result = await api(`/api/panels/${id}/subscription-origins/lookup`, {
+      query,
+    });
+    if (
+      id !== panelId ||
+      query !== $("#subscriptionOriginFilters").elements.q.value.trim()
+    )
+      return;
+    table(
+      "#subscriptionOriginLookup",
+      ["客户 ID / 邮箱", "Xboard 当前订阅地址（本次查询）", "操作"],
+      result.user
+        ? [
+            [
+              result.user.id + " / " + result.user.email,
+              result.user.subscribe_url,
+              button("修改", () =>
+                editSubscriptionOrigin(
+                  {
+                    uid: result.user.id,
+                    email: result.user.email,
+                    origin:
+                      result.setting?.origin ||
+                      new URL(result.user.subscribe_url).origin,
+                    revision: result.setting?.revision || null,
+                  },
+                  id,
+                ),
+              ),
+            ],
+          ]
+        : [["未找到此客户", "", ""]],
+    );
+    $("#subscriptionOriginLookupBox").hidden = false;
+  }
   await refresh();
 });
 $("#clearVisits").onclick = () => {
