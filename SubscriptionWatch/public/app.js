@@ -208,7 +208,9 @@ function currentStatusCell(user) {
   }
   return status;
 }
-function toast(text) {
+function toast(text, kind = "success") {
+  $("#toast").dataset.kind = kind;
+  $("#toast").setAttribute("role", kind === "error" ? "alert" : "status");
   $("#toast").textContent = text;
   $("#toast").hidden = false;
   clearTimeout(toastTimer);
@@ -244,7 +246,7 @@ const run = (fn) => async (e) => {
   try {
     await fn(e);
   } catch (e) {
-    toast(e.message);
+    toast(e.message, "error");
   }
 };
 const panel = () => panels.find((p) => p.id === panelId),
@@ -426,7 +428,7 @@ async function loadUserHistory(kind) {
   } catch (error) {
     if (userHistoryState !== current) return;
     if (!state.loaded) $(target).textContent = `加载失败：${error.message}`;
-    else toast(error.message);
+    else toast(error.message, "error");
     $(more).hidden = false;
   } finally {
     state.loading = false;
@@ -841,7 +843,10 @@ $("#actionForm").onsubmit = run(async () => {
   }
   $("#actionDialog").close();
   $("#actionForm").reset();
-  toast(result?.sync?.message || "操作完成");
+  toast(
+    result?.sync?.message || "操作完成",
+    result?.sync?.ok === false ? "error" : "success",
+  );
   await refresh();
 });
 $("#cancelAction").onclick = () => $("#actionDialog").close();
@@ -1002,7 +1007,7 @@ function showTab(name) {
   $("#pageTitle").textContent = document.querySelector(
     `[data-tab="${name}"]`,
   ).textContent;
-  refresh().catch((e) => toast(e.message));
+  refresh().catch((e) => toast(e.message, "error"));
 }
 for (const b of document.querySelectorAll("[data-tab]"))
   b.onclick = () => showTab(b.dataset.tab);
@@ -1795,7 +1800,7 @@ $("#sourceIpForm").onsubmit = run(async () => {
 $("#filters").onreset = () =>
   setTimeout(() => {
     page = 1;
-    refresh().catch((e) => toast(e.message));
+    refresh().catch((e) => toast(e.message, "error"));
   }, 0);
 $("#subjectSearch").onsubmit = run(async () => {
   page = 1;
@@ -1934,7 +1939,7 @@ function editSubscriptionOrigin(row = null, id = panelId) {
   ask(
     row ? "修改客户订阅地址" : "新增客户指定订阅地址",
     row
-      ? `客户 ${row.uid} / ${row.email}。只填写 HTTPS 根地址，客户原有路径和 Token 保留。`
+      ? `客户 ${row.uid} / ${row.email}。只填写 HTTP 或 HTTPS 根地址，客户原有路径和 Token 保留。`
       : "填写 Xboard 客户 ID 和准确邮箱；尚无采集记录的客户也可预先设置。域名必须指向此面板。不要填写完整订阅链接或 Token。",
     [
       ...(!row ? [{ name: "uid", label: "客户 ID", type: "number" }] : []),
@@ -1946,7 +1951,7 @@ function editSubscriptionOrigin(row = null, id = panelId) {
       },
       {
         name: "origin",
-        label: "HTTPS 订阅根地址，例如 https://sub.example.com",
+        label: "HTTP / HTTPS 订阅根地址，例如 http://sub.example.com",
         value: row?.origin || "",
         type: "url",
         required: !useChoices,
@@ -2003,7 +2008,7 @@ $("#subscriptionOriginSyncForm").onsubmit = run(async () => {
     xboard_url: input.value.trim(),
   });
   if (input.dataset.panel === String(id)) delete input.dataset.dirty;
-  toast(result.sync.message);
+  toast(result.sync.message, result.sync.ok ? "success" : "error");
   await refresh();
 });
 $("#subscriptionOriginOptionsForm").elements.origins.oninput = (e) => {
@@ -2181,7 +2186,7 @@ $("#geoInstall").onclick = run(async () => {
 setInterval(() => {
   if (!$("#app").hidden && tab === "site") geoStatus().catch(() => {});
 }, 3000);
-enter().catch((e) => toast(e.message));
+enter().catch((e) => toast(e.message, "error"));
 // A restored page must revalidate the session before any old data is shown.
 addEventListener("pagehide", () => {
   document.body.hidden = true;

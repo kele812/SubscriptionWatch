@@ -55,7 +55,7 @@ export function saveSubscriptionOriginOptions(db, panel, data) {
     data.origins.length > 20 ||
     data.origins.some((value) => typeof value !== "string")
   )
-    throw Error("最多保存20个备选订阅地址，每行一个 HTTPS 根地址");
+    throw Error("最多保存20个备选订阅地址，每行一个 HTTP 或 HTTPS 根地址");
   const origins = [
     ...new Set(
       data.origins.map((value) => normalizeSubscriptionOrigin(value.trim())),
@@ -76,18 +76,19 @@ export function saveSubscriptionOriginOptions(db, panel, data) {
   });
 }
 
-export function normalizeSubscriptionOrigin(value) {
+export function normalizeSubscriptionOrigin(value, httpsOnly = false) {
+  const protocols = httpsOnly ? "HTTPS" : "HTTP 或 HTTPS";
   if (typeof value !== "string" || value.length > 255 || /[\s\\]/u.test(value))
-    throw Error("请填写 HTTPS 订阅根地址，不含路径、Token 或空格");
+    throw Error(`请填写 ${protocols} 根地址，不含路径、Token 或空格`);
   let url;
   try {
     url = new URL(value);
   } catch {
-    throw Error("请填写完整 HTTPS 地址，例如 https://sub.example.com");
+    throw Error(`请填写完整 ${protocols} 地址，例如 https://sub.example.com`);
   }
   if (
-    !/^https:\/\/[^/?#]+\/?$/.test(value) ||
-    url.protocol !== "https:" ||
+    !/^https?:\/\/[^/?#]+\/?$/.test(value) ||
+    !(httpsOnly ? ["https:"] : ["http:", "https:"]).includes(url.protocol) ||
     !url.hostname ||
     url.username ||
     url.password ||
@@ -97,7 +98,7 @@ export function normalizeSubscriptionOrigin(value) {
     value.includes("?") ||
     value.includes("#")
   )
-    throw Error("只允许 HTTPS 根地址，不含账号、路径、查询参数或 Token");
+    throw Error(`只允许 ${protocols} 根地址，不含账号、路径、查询参数或 Token`);
   return url.origin;
 }
 
@@ -392,7 +393,7 @@ export function receiveSubscriptionOriginSync(req, res, context) {
 }
 
 export function saveSubscriptionOriginPush(db, panel, value) {
-  const origin = value === "" ? "" : normalizeSubscriptionOrigin(value);
+  const origin = value === "" ? "" : normalizeSubscriptionOrigin(value, true);
   db.prepare(
     `INSERT INTO subscription_origin_push(panel,xboard_url) VALUES(?,?)
     ON CONFLICT(panel) DO UPDATE SET xboard_url=excluded.xboard_url,last_error=NULL`,

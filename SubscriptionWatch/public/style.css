@@ -728,6 +728,18 @@ dialog::backdrop {
   border-radius: 4px;
   box-shadow: 0 8px 30px #0008;
 }
+#toast[data-kind="error"] {
+  color: #ffb4be;
+  border-color: #ff707e;
+  background: #35171f;
+}
+#actionError {
+  color: #ff707e;
+}
+input:user-invalid,
+textarea:user-invalid {
+  border-color: #ff707e;
+}
 .login {
   min-height: 100dvh;
   display: grid;

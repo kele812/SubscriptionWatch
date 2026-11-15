@@ -1,10 +1,10 @@
-# SubscriptionWatch v4.0.19
+# SubscriptionWatch v4.0.20
 
 每个面板的“插件接入”可保存最多5个指向同一风控机的 HTTPS 地址，按优先顺序排列。保存后，还需在 Xboard 采集插件中用英文逗号填写同一组地址，并在 XBnpp 节点上配置备用地址。连接失败、超时或服务器5xx时才切换；认证失败、签名错误不切换。所有地址不可用时，由插件的“风控后台失联时继续下发”开关决定是否下发，默认关闭（拒绝）。
 
 ## 上传插件
 
-后台和采集插件统一为 **v4.0.19**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.19.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.19.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。访问记录同时展示“结果”（这次请求）和“当前状态”（该用户现在是否可疑、是否达到24小时请求上限，以及已计入次数和下一次序号）；本次请求通过 IP／域名白名单订阅时，列表和详情会单独标注，当前状态仍显示近24小时白名单次数。升级时能从留存的审核结果补标旧记录；找不到审核结果的旧记录不猜测。可在该行单独重置用户24小时计数，访问历史和可疑标记保留。同一次请求会检查完所有适用规则，访问详情逐条列出本次拦截原因；用户及 IP／域名白名单仍优先豁免所有规则；Cloudflare 豁免按下述新范围执行。
+后台和采集插件统一为 **v4.0.20**。下载 [后台 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatch-v4.0.20.zip) 和 [采集插件 ZIP](https://github.com/kele812/SubscriptionWatch/raw/refs/heads/main/downloads/SubscriptionWatchCollector-v4.0.20.zip)。先更新风控后台，再在 Xboard 插件管理上传新版插件并启用。访问记录同时展示“结果”（这次请求）和“当前状态”（该用户现在是否可疑、是否达到24小时请求上限，以及已计入次数和下一次序号）；本次请求通过 IP／域名白名单订阅时，列表和详情会单独标注，当前状态仍显示近24小时白名单次数。升级时能从留存的审核结果补标旧记录；找不到审核结果的旧记录不猜测。可在该行单独重置用户24小时计数，访问历史和可疑标记保留。同一次请求会检查完所有适用规则，访问详情逐条列出本次拦截原因；用户及 IP／域名白名单仍优先豁免所有规则；Cloudflare 豁免按下述新范围执行。
 
 访问记录的“结果”栏已加宽：规则拦截时逐条列出命中规则；请求失败时显示能确认的原因。新版插件会用固定类别上报风控审核失联、响应校验失败等插件拒绝原因，不上传错误正文。其他失败只按响应状态、内容类型和是否返回订阅解释；若证据不足，则明确显示“具体原因未记录”。旧记录不会被推断为某种插件故障。
 
@@ -57,7 +57,7 @@ git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele
 
 
 
-## 4.0.19 指定订阅地址与本地同步
+## 4.0.20 指定订阅地址与本地同步
 
 在左侧“修改订阅的用户”页面，先填写安装了插件的 Xboard HTTPS 根地址，点击“保存地址并立即同步”。风控服务器须能访问该地址；Cloudflare/WAF 不应向 /api/v1/guest/subscription-watch/origin-sync 和 origin-lookup 返回浏览器挑战。两端使用已有采集密钥验签，不需要远程 MySQL 密码。
 
@@ -71,4 +71,10 @@ git -C /opt/SubscriptionWatch-repo remote set-url origin https://github.com/kele
 
 删除从已修改列表移除，同步成功后清除本地设置、恢复默认，不删除客户或备选地址。删除同步失败时旧映射暂存，可点击“保存地址并立即同步”重试。旧版已恢复默认记录也能删除。
 
-先升级后台，再上传启用4.0.19插件，在 Xboard 自己的 Compose 项目目录执行 docker compose restart，使常驻进程加载新插件和路由。配置 Xboard 地址并同步，原指定客户自动迁入，无需重加。同步后刷新Xboard管理员或客户页面再复制／导入；客户端旧链接需重新导入。指定域名仍需提前配置同一Xboard的DNS、HTTPS、反代。不要回退旧插件，否则恢复逐客户网络查询。本次未连接你的线上Xboard，不保证其他原因的卡顿同时消失。
+先升级后台，再上传启用4.0.20插件，在 Xboard 自己的 Compose 项目目录执行 docker compose restart，使常驻进程加载新插件和路由。配置 Xboard 地址并同步，原指定客户自动迁入，无需重加。同步后刷新Xboard管理员或客户页面再复制／导入；客户端旧链接需重新导入。指定域名仍需提前配置同一Xboard的DNS、HTTPS、反代。不要回退旧插件，否则恢复逐客户网络查询。本次未连接你的线上Xboard，不保证其他原因的卡顿同时消失。
+
+## 4.0.20 HTTP 地址与错误提示
+
+备选和客户指定订阅地址均支持 HTTP / HTTPS 根地址，可带端口，例如 http://sub.example.com:8080。仍拒绝账号密码、路径、查询参数、Token 和其他协议；保存备选后可下拉选择并同步到 Xboard 本地，协议和端口保留。
+
+填写错误、请求失败与未确认的主动同步显示红色提示；成功提示保留绿色，编辑弹窗内错误也为红色。Xboard 管理同步地址以及插件连接风控后台的地址仍使用 HTTPS。先更新后台，再更新4.0.20插件并重启Xboard常驻进程，保证HTTP配置可以完整同步。

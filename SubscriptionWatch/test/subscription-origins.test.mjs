@@ -11,7 +11,14 @@ import { DatabaseSync } from "node:sqlite";
 import { createApp } from "../server.mjs";
 import { normalizeSubscriptionOrigin } from "../subscription-origins.mjs";
 
-test("指定订阅根地址拒绝路径、Token、凭据和非 HTTPS，支持规范化域名", () => {
+test("订阅根地址支持 HTTP/HTTPS，拒绝路径、Token、凭据及其他协议", () => {
+  assert.equal(
+    normalizeSubscriptionOrigin("http://Sub.Example.COM:8080/"),
+    "http://sub.example.com:8080",
+  );
+  assert.throws(() =>
+    normalizeSubscriptionOrigin("http://panel.example.com", true),
+  );
   assert.equal(
     normalizeSubscriptionOrigin("https://Sub.Example.COM/"),
     "https://sub.example.com",
@@ -23,7 +30,7 @@ test("指定订阅根地址拒绝路径、Token、凭据和非 HTTPS，支持规
   for (const value of [
     null,
     "sub.example.com",
-    "http://sub.example.com",
+    "ftp://sub.example.com",
     "https://a.example/subscribe",
     "https://a.example/a/..",
     "https://a.example/?token=secret",
@@ -157,7 +164,7 @@ test("本地地址同步：保存立即确认、搜索当前链接、删除与�
     const saved = {
       uid: 7,
       email: "customer@example.com",
-      origin: "https://custom.example.com",
+      origin: "http://custom.example.com:8080",
     };
     const created = await (await post(route, saved, cookie)).json();
     assert.equal(created.sync.ok, true);
@@ -168,7 +175,7 @@ test("本地地址同步：保存立即确认、搜索当前链接、删除与�
     assert.equal((await list()).rows[0].state, "已同步到 Xboard");
     assert.equal(
       (await search(saved.email)).user.subscribe_url,
-      "https://custom.example.com/s/" + "a".repeat(32) + "?flag=clash",
+      "http://custom.example.com:8080/s/" + "a".repeat(32) + "?flag=clash",
     );
     assert.equal((await search("999")).user, null);
     const edited = await (
@@ -370,7 +377,7 @@ test("客户指定地址：鉴权、隔离、变更、删除恢复默认及备�
       [7],
       Array(21).fill("https://one.example.com"),
       ["https://one.example.com/path"],
-      ["http://one.example.com"],
+      ["ftp://one.example.com"],
     ])
       assert.equal((await post(optionsRoute, { origins }, cookie)).status, 400);
     const optionData = await (
@@ -380,7 +387,7 @@ test("客户指定地址：鉴权、隔离、变更、删除恢复默认及备�
           origins: [
             "https://Choice-One.example.com/",
             "https://choice-one.example.com",
-            "https://choice-two.example.com",
+            "http://choice-two.example.com:8080",
           ],
         },
         cookie,
@@ -388,7 +395,7 @@ test("客户指定地址：鉴权、隔离、变更、删除恢复默认及备�
     ).json();
     assert.deepEqual(optionData.origins, [
       "https://choice-one.example.com",
-      "https://choice-two.example.com",
+      "http://choice-two.example.com:8080",
     ]);
     assert.deepEqual((await getOptions()).origins, optionData.origins);
     assert.equal(
@@ -672,7 +679,7 @@ test("客户指定地址：鉴权、隔离、变更、删除恢复默认及备�
     cookie = login.headers.get("set-cookie").split(";")[0];
     assert.deepEqual((await getOptions()).origins, [
       "https://choice-one.example.com",
-      "https://choice-two.example.com",
+      "http://choice-two.example.com:8080",
     ]);
     assert.equal(
       (await resolve(p, { email: "changed@example.com" })).origin,

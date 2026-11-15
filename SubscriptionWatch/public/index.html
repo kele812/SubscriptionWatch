@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.19" />
+    <link rel="stylesheet" href="/style.css?v=4.0.20" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.19 · 独立采集 · 风险评估</small>
+        <small>v4.0.20 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -183,14 +183,14 @@
             </button>
           </div>
           <p>
-            为当前面板的客户单独指定 HTTPS 订阅域名。只替换域名，路径与客户
-            Token 由 Xboard
+            为当前面板的客户单独指定 HTTP 或 HTTPS
+            订阅域名。只替换域名，路径与客户 Token 由 Xboard
             保留拼接；未单独设置时使用站点默认地址。域名须已指向同一个
-            Xboard，并配置好 HTTPS
+            Xboard，并配置好对应协议、端口
             和反向代理。同一面板、同一客户只保留一条设置；搜索后修改与手动新增以最后一次保存为准，搜索本身不会修改地址。
           </p>
           <p>
-            需要 4.0.19 采集插件。配置 Xboard
+            需要 4.0.20 采集插件。配置 Xboard
             地址后，保存修改或删除会立即尝试同步到 Xboard
             本地数据库；确认同步成功后，刷新管理员或客户页面再复制／导入。
             列表和复制操作只读取本地设置，不逐客户远程查询风控。已导入客户端的旧链接需重新导入。
@@ -212,7 +212,7 @@
             <summary id="subscriptionOriginOptionsTitle">备选订阅地址</summary>
             <form id="subscriptionOriginOptionsForm">
               <label
-                >备选 HTTPS 根地址（每行一个，最多20个）<textarea
+                >备选 HTTP / HTTPS 根地址（每行一个，最多20个）<textarea
                   name="origins"
                   rows="4"
                   placeholder="https://sub-a.example.com&#10;https://sub-b.example.com"
@@ -905,6 +905,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.19"></script>
+    <script src="/app.js?v=4.0.20"></script>
   </body>
 </html>

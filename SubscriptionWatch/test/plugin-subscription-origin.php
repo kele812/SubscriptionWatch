@@ -137,11 +137,13 @@ namespace {
     newRequest();same((new SubscriptionOrigin([...$options,'panel_id'=>str_repeat('b',48)]))->rewrite($url),$url,'panel isolation');
     User::$rows[$token]->email='changed@example.com';newRequest();same($service->rewrite($url),$url,'email mismatch');User::$rows[$token]->email=$email;
     User::$rows[$token]->token=str_repeat('b',32);newRequest();same($service->rewrite($url),$url,'token reset');User::$rows[$token]->token=$token;
-    foreach(['http://unsafe.example','https://user:pass@unsafe.example','https://unsafe.example/path','https://unsafe.example?x=1',"https://unsafe.example\n",'https://unsafe.example\\x'] as $v)same(OriginStore::validOrigin($v),false,'invalid origin');
+    foreach(['ftp://unsafe.example','https://user:pass@unsafe.example','https://unsafe.example/path','https://unsafe.example?x=1',"https://unsafe.example\n",'https://unsafe.example\\x'] as $v)same(OriginStore::validOrigin($v),false,'invalid origin');
     $old=DB::$tables;Http::$users[0]['origin']='https://updated.example.com';
     foreach(['unavailable','error','wrong-panel','wrong-nonce','expired','future','bad-signature'] as $mode){Http::$mode=$mode;try{$sync->invoke($store);}catch(\Throwable $e){}same(DB::$tables,$old,'failed sync retains snapshot: '.$mode);}
     Http::$mode='valid';DB::$fail=true;try{$sync->invoke($store);}catch(\Throwable $e){}same(DB::$tables,$old,'transaction rollback');DB::$fail=false;
     $sync->invoke($store);newRequest();same($service->rewrite($url),str_replace('https://default.example.com','https://updated.example.com',$url),'fresh request sees update');
+    Http::$users[0]['origin']='http://plain.example.com:8080';$sync->invoke($store);newRequest();
+    same($service->rewrite($url),str_replace('https://default.example.com','http://plain.example.com:8080',$url),'HTTP snapshot sync and local rewrite');
     Http::$users=[];$sync->invoke($store);newRequest();same($service->rewrite($url),$url,'deleted override restores default');
     Http::$users=[];for($i=1;$i<=501;$i++)Http::$users[]=['user_id'=>$i,'email'=>'user'.$i.'@example.com','origin'=>'https://page.example.com'];
     $old=DB::$tables;Http::$mode='restart';try{$sync->invoke($store);}catch(\Throwable $e){}same(DB::$tables,$old,'second-page restart no partial write');

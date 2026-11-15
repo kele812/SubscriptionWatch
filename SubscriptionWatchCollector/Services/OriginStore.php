@@ -22,9 +22,9 @@ class OriginStore
     public static function validOrigin($origin): bool
     {
         if (!is_string($origin) || strlen($origin) > 255 || preg_match('/[\s\\\\]/', $origin)
-            || !preg_match('#^https://[^/?\#]+/?$#D', $origin)) return false;
+            || !preg_match('#^https?://[^/?\#]+/?$#D', $origin)) return false;
         $p = parse_url($origin);
-        return is_array($p) && ($p['scheme'] ?? '') === 'https' && !empty($p['host'])
+        return is_array($p) && in_array($p['scheme'] ?? '', ['http', 'https'], true) && !empty($p['host'])
             && !isset($p['user']) && !isset($p['pass']) && !isset($p['query']) && !isset($p['fragment'])
             && in_array($p['path'] ?? '', ['', '/'], true);
     }
