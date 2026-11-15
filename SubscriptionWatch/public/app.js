@@ -110,10 +110,8 @@ function reviewReasonLabels(raw) {
 }
 function visitFailureReason(row) {
   const known = {
-    "review-unavailable":
-      "风控后台连接失败、超时或服务异常，插件拒绝本次订阅",
-    "review-invalid":
-      "风控后台拒绝审核请求或响应校验失败，插件拒绝本次订阅",
+    "review-unavailable": "风控后台连接失败、超时或服务异常，插件拒绝本次订阅",
+    "review-invalid": "风控后台拒绝审核请求或响应校验失败，插件拒绝本次订阅",
     "review-error": "风控审核发生异常，插件拒绝本次订阅",
   };
   if (known[row.failure_code]) return known[row.failure_code];
@@ -138,7 +136,9 @@ function visitOutcomeReasons(row) {
       : ["拦截原因：旧记录未保存具体规则"];
   }
   if (result === "订阅成功") return [];
-  return [`${result === "请求失败" ? "失败原因" : "说明"}：${visitFailureReason(row)}`];
+  return [
+    `${result === "请求失败" ? "失败原因" : "说明"}：${visitFailureReason(row)}`,
+  ];
 }
 function visitResultCell(row) {
   const reasons = visitOutcomeReasons(row);
@@ -753,7 +753,11 @@ function detail(data) {
       );
     if (data.结果 === "规则拦截跳转") {
       const reasons = reviewReasonLabels(data.触发规则);
-      line(card, `拦截原因（${reasons.length} 条）：`, "visit-result-text failure");
+      line(
+        card,
+        `拦截原因（${reasons.length} 条）：`,
+        "visit-result-text failure",
+      );
       const list = document.createElement("ul");
       list.className = "visit-block-reasons";
       for (const reason of reasons.length
@@ -1038,13 +1042,18 @@ async function refresh() {
             "risk",
             "riskHistory",
             "whitelist",
+            "subscriptionOrigins",
             "panelSettings",
             "riskRules",
             "telegram",
           ].includes(tab));
-    const pageable = ["history", "risk", "riskHistory", "whitelist"].includes(
-      tab,
-    );
+    const pageable = [
+      "history",
+      "risk",
+      "riskHistory",
+      "whitelist",
+      "subscriptionOrigins",
+    ].includes(tab);
     $("#pagination").hidden = !pageable || !panelId;
     let rows = [];
     if (tab === "sourceIp") {
@@ -1241,6 +1250,62 @@ async function refresh() {
         ]),
       );
     }
+    if (panelId && tab === "subscriptionOrigins") {
+      const d = await read(
+        endpoint("subscription-origins") +
+          "?" +
+          new URLSearchParams({
+            page,
+            q: $("#subscriptionOriginFilters").elements.q.value.trim(),
+          }),
+      );
+      rows = d.rows;
+      const id = panelId;
+      table(
+        "#subscriptionOriginTable",
+        [
+          "客户 ID / 邮箱",
+          "指定订阅域名",
+          "状态",
+          "修改时间",
+          "最近插件查询",
+          "操作",
+        ],
+        d.rows.map((row) => [
+          row.uid + " / " + row.email,
+          row.origin || "使用 Xboard 站点默认地址",
+          row.state,
+          format(row.updated),
+          format(row.last_checked),
+          actions(
+            button(row.origin ? "编辑" : "重新指定", () =>
+              editSubscriptionOrigin(row, id),
+            ),
+            ...(row.origin
+              ? [
+                  button("恢复默认", () =>
+                    ask(
+                      "恢复此客户的默认订阅地址",
+                      `客户 ${row.uid} / ${row.email}。客户下次刷新 Xboard 订阅信息时使用站点默认地址，修改记录仍会保留。`,
+                      [],
+                      () =>
+                        api(`/api/panels/${id}/subscription-origins`, {
+                          uid: row.uid,
+                          email: row.email,
+                          origin: null,
+                          revision: row.revision,
+                        }),
+                    ),
+                  ),
+                ]
+              : []),
+          ),
+        ]),
+      );
+      $("#subscriptionOriginCount").textContent =
+        `共 ${d.total} 名已修改客户（包含已恢复默认）`;
+      $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;
+    }
     if (panelId && tab === "history") {
       const d = await read(endpoint("events") + "?" + query());
       rows = d.rows;
@@ -1434,7 +1499,8 @@ async function refresh() {
       );
     }
     if (pageable) {
-      if (tab !== "history") $("#pageInfo").textContent = "第 " + page + " 页";
+      if (!["history", "subscriptionOrigins"].includes(tab))
+        $("#pageInfo").textContent = "第 " + page + " 页";
       $("#prev").disabled = page === 1;
       $("#next").disabled = rows.length < 50;
     }
@@ -1833,6 +1899,42 @@ $("#addWhite").onclick = () => {
       }),
   );
 };
+function editSubscriptionOrigin(row = null, id = panelId) {
+  if (!id) return;
+  ask(
+    row ? "修改客户订阅地址" : "新增客户指定订阅地址",
+    row
+      ? `客户 ${row.uid} / ${row.email}。只填写 HTTPS 根地址，客户原有路径和 Token 保留。`
+      : "填写 Xboard 客户 ID 和准确邮箱；尚无采集记录的客户也可预先设置。域名必须指向此面板。不要填写完整订阅链接或 Token。",
+    [
+      ...(!row ? [{ name: "uid", label: "客户 ID", type: "number" }] : []),
+      {
+        name: "email",
+        label: "客户邮箱（必须与 Xboard 一致）",
+        type: "email",
+        value: row?.email || "",
+      },
+      {
+        name: "origin",
+        label: "HTTPS 订阅根地址，例如 https://sub.example.com",
+        value: row?.origin || "",
+        type: "url",
+      },
+    ],
+    (b) =>
+      api(`/api/panels/${id}/subscription-origins`, {
+        uid: row?.uid ?? Number(b.uid),
+        email: b.email.trim(),
+        origin: b.origin.trim(),
+        revision: row?.revision ?? null,
+      }),
+  );
+}
+$("#addSubscriptionOrigin").onclick = () => editSubscriptionOrigin();
+$("#subscriptionOriginFilters").onsubmit = run(async (e) => {
+  page = 1;
+  await refresh();
+});
 $("#clearVisits").onclick = () => {
   if (!panelId) return;
   const url = endpoint("history/clear");

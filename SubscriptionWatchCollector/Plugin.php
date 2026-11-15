@@ -12,6 +12,7 @@ require_once __DIR__ . '/Services/Collector.php';
 require_once __DIR__ . '/Services/Endpoints.php';
 require_once __DIR__ . '/Services/Buffer.php';
 require_once __DIR__ . '/Services/Control.php';
+require_once __DIR__ . '/Services/SubscriptionOrigin.php';
 
 class Plugin extends AbstractPlugin
 {
@@ -19,6 +20,9 @@ class Plugin extends AbstractPlugin
 
     public function boot(): void
     {
+        $this->filter('subscribe.url', function ($url) {
+            return (new \Plugin\SubscriptionWatchCollector\Services\SubscriptionOrigin($this->getConfig()))->rewrite($url);
+        });
         // Store all request-specific state on the Request, never in an Octane singleton.
         $this->listen('client.subscribe.before', function () {
             $options = $this->getConfig();

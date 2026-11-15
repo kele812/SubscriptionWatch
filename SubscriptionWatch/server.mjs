@@ -46,6 +46,12 @@ import {
 } from "./model.mjs";
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
+import {
+  initSubscriptionOrigins,
+  saveSubscriptionOrigin,
+  subscriptionOriginRows,
+  receiveSubscriptionOrigin,
+} from "./subscription-origins.mjs";
 import { validateCollectorUrls } from "./collector-urls.mjs";
 import {
   clientStatusByUsers,
@@ -158,6 +164,7 @@ export function createApp({
       migrate371(db);
       migrateUaRiskV401(db);
       initDestinations(db);
+      initSubscriptionOrigins(db);
       // Verify restored encrypted credentials before accepting the replacement.
       if (validate) {
         try {
@@ -418,6 +425,8 @@ export function createApp({
         return await receiveBatch(req, res, { db, decrypt, geo });
       if (method === "POST" && route === "/api/collector/review")
         return await receiveReview(req, res, { db, decrypt, geo });
+      if (method === "POST" && route === "/api/collector/subscription-origin")
+        return await receiveSubscriptionOrigin(req, res, { db, decrypt });
       if (method !== "GET" && req.headers["x-watch-request"] !== "1")
         fail(403, "请求校验失败");
       if (method === "POST" && ["/api/setup", "/api/login"].includes(route)) {
@@ -989,6 +998,14 @@ export function createApp({
             200,
             clientStatusRows(db, panel, u.searchParams.get("q") || "", page),
           );
+        if (action === "subscription-origins" && method === "GET")
+          return json(
+            res,
+            200,
+            subscriptionOriginRows(db, id, u.searchParams.get("q") || "", page),
+          );
+        if (action === "subscription-origins" && method === "POST")
+          return json(res, 200, saveSubscriptionOrigin(db, id, b));
         if (action === "client-status/reset" && method === "POST") {
           if (b.confirm !== true) fail(400, "请确认重置该用户的24小时次数");
           if (
@@ -1346,7 +1363,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.16 ready");
+  console.log("Subscription Watch v4.0.17 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

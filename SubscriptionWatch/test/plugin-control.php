@@ -51,11 +51,13 @@ namespace Illuminate\Support\Facades {
     class Response {
         public function __construct(private array $data){}
         public function successful(){return true;}
+        public function status(){return 200;}
         public function body(){return json_encode($this->data);}
         public function json(){return $this->data;}
     }
 }
 namespace {
+    require __DIR__.'/../../SubscriptionWatchCollector/Services/Endpoints.php';
     require __DIR__.'/../../SubscriptionWatchCollector/Services/Control.php';
     use App\Models\User;use App\Services\AuthService;use Illuminate\Support\Facades\Http;
     function check($value,$message){if(!$value)throw new \RuntimeException($message);}
@@ -74,13 +76,13 @@ namespace {
         global $control,$exchange;
         User::$rows=$user?[1=>$user]:[];User::$saves=0;AuthService::$calls=0;AuthService::$fail=$failure;Http::$mode=$mode;Http::$tasks=[$task];
         $redis=new RedisStub;
-        $exchange->invoke($control,$redis,'test:','https://watch.example.com',str_repeat('b',48),str_repeat('k',48),true);
+        $exchange->invoke($control,$redis,'test:',['https://watch.example.com'],str_repeat('b',48),str_repeat('k',48),true);
         return $redis;
     }
     foreach(['bad_signature','wrong_nonce','wrong_panel','expired_response'] as $mode){runCase($mode,$task,new User);check(User::$saves===0,'Untrusted response executed: '.$mode);}
     $redis=runCase('valid',$task,new User);check(User::$rows[1]->banned===1 && User::$rows[1]->balance===42 && AuthService::$calls===1,'Ban must preserve unrelated fields and remove sessions');check($redis->hash['test:results'][$task['id']]==='banned','Result missing');
     // Simulate a duplicate task in a fresh signed response: the executor still must not run twice.
-    $exchange->invoke($control,$redis,'test:','https://watch.example.com',str_repeat('b',48),str_repeat('k',48),true);check(User::$saves===1,'Duplicate re-executed');check(count(Http::$last['results'])===1,'Result not retransmitted');
+    $exchange->invoke($control,$redis,'test:',['https://watch.example.com'],str_repeat('b',48),str_repeat('k',48),true);check(User::$saves===1,'Duplicate re-executed');check(count(Http::$last['results'])===1,'Result not retransmitted');
     foreach(['is_admin','is_staff'] as $field){$u=new User;$u->$field=1;$redis=runCase('valid',$task,$u);check(User::$saves===0 && $redis->hash['test:results'][$task['id']]==='rejected','Privileged user not rejected');}
     $u=new User;$u->email='other@example.com';$redis=runCase('valid',$task,$u);check(User::$saves===0 && $redis->hash['test:results'][$task['id']]==='rejected','Email mismatch not rejected');
     $redis=runCase('valid',$task);check($redis->hash['test:results'][$task['id']]==='rejected','Missing user not rejected');
