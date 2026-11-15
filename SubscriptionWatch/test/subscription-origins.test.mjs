@@ -7,6 +7,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { createApp } from "../server.mjs";
 import { normalizeSubscriptionOrigin } from "../subscription-origins.mjs";
 
@@ -79,7 +80,11 @@ test("客户指定地址：后台鉴权、面板/邮箱隔离、实时变更、�
       email: "customer@example.com",
       origin: "https://sub.example.com/",
     };
-    const pluginUrl = async (email = saved.email) => {
+    const pluginUrl = async (
+      email = saved.email,
+      mode = "live",
+      route = "api/v2/admin/user/fetch",
+    ) => {
       if (!process.env.PHP_BIN) return null;
       const { stdout } = await promisify(execFile)(
         process.env.PHP_BIN,
@@ -88,7 +93,7 @@ test("客户指定地址：后台鉴权、面板/邮箱隔离、实时变更、�
           fileURLToPath(
             new URL("./plugin-subscription-origin.php", import.meta.url),
           ),
-          "live",
+          mode,
         ],
         {
           env: {
@@ -97,6 +102,7 @@ test("客户指定地址：后台鉴权、面板/邮箱隔离、实时变更、�
             WATCH_TEST_SECRET: p.key.collectorKey,
             WATCH_TEST_PANEL: p.key.publicId,
             WATCH_TEST_EMAIL: email,
+            WATCH_TEST_ROUTE: route,
           },
         },
       );
@@ -128,7 +134,69 @@ test("客户指定地址：后台鉴权、面板/邮箱隔离、实时变更、�
         })
       ).json();
     assert.equal((await list()).rows[0].origin, "https://sub.example.com");
-    assert.equal((await list()).rows[0].state, "待客户刷新订阅信息");
+    assert.equal((await list()).rows[0].state, "尚未成功查询");
+    const optionsRoute = p.route + "/options";
+    const getOptions = async (panel = p) =>
+      (
+        await fetch(base + panel.route + "/options", {
+          headers: { Cookie: cookie },
+        })
+      ).json();
+    assert.equal((await fetch(base + optionsRoute)).status, 401);
+    assert.equal((await post(optionsRoute, { origins: [] })).status, 401);
+    assert.deepEqual((await getOptions()).origins, ["https://sub.example.com"]);
+    assert.deepEqual((await getOptions(other)).origins, []);
+    for (const origins of [
+      null,
+      [7],
+      Array(21).fill("https://one.example.com"),
+      ["https://one.example.com/path"],
+      ["http://one.example.com"],
+    ])
+      assert.equal((await post(optionsRoute, { origins }, cookie)).status, 400);
+    const optionData = await (
+      await post(
+        optionsRoute,
+        {
+          origins: [
+            "https://Choice-One.example.com/",
+            "https://choice-one.example.com",
+            "https://choice-two.example.com",
+          ],
+        },
+        cookie,
+      )
+    ).json();
+    assert.deepEqual(optionData.origins, [
+      "https://choice-one.example.com",
+      "https://choice-two.example.com",
+    ]);
+    assert.deepEqual((await getOptions()).origins, optionData.origins);
+    assert.equal(
+      (await post(optionsRoute, { origins: [], revision: null }, cookie))
+        .status,
+      409,
+    );
+    assert.equal((await list()).rows[0].origin, "https://sub.example.com");
+    const clearedOptions = await (
+      await post(
+        optionsRoute,
+        { origins: [], revision: optionData.revision },
+        cookie,
+      )
+    ).json();
+    assert.deepEqual((await getOptions()).origins, []);
+    assert.equal((await list()).rows[0].origin, "https://sub.example.com");
+    assert.equal(
+      (
+        await post(
+          optionsRoute,
+          { origins: optionData.origins, revision: clearedOptions.revision },
+          cookie,
+        )
+      ).status,
+      200,
+    );
     assert.equal((await list(other)).total, 0);
     assert.equal((await list(p, "sub.example")).total, 1);
     assert.equal((await list(p, "not-present")).total, 0);
@@ -183,18 +251,36 @@ test("客户指定地址：后台鉴权、面板/邮箱隔离、实时变更、�
     assert.equal((await resolve(p, {}, false, true)).status, 401);
     assert.equal((await resolve(p, { token: "not-allowed" })).status, 422);
     assert.equal((await resolve()).origin, "https://sub.example.com");
+    assert.equal((await resolve()).lookup_status, "configured");
+    if (process.env.PHP_BIN) {
+      for (const route of [
+        "api/v2/admin/user/fetch",
+        "api/v1/user/getSubscribe",
+      ]) {
+        const result = JSON.parse(
+          await pluginUrl(saved.email, "live-response", route),
+        );
+        assert.equal(
+          result.data.rows[0].subscribe_url,
+          "https://sub.example.com/s/" + "a".repeat(32) + "?flag=clash",
+        );
+      }
+    }
     if (process.env.PHP_BIN)
       assert.equal(
         await pluginUrl(),
-        "https://sub.example.com/api/v1/client/subscribe?token=" +
-          "a".repeat(32) +
-          "&flag=clash",
+        "https://sub.example.com/s/" + "a".repeat(32) + "?flag=clash",
       );
     assert.equal((await list()).rows[0].state, "插件已查询");
     assert.equal((await resolve(other)).origin, null);
     assert.equal(
       (await resolve(p, { email: "different@example.com" })).origin,
       null,
+    );
+    assert.equal((await list()).rows[0].state, "查询邮箱不匹配，未应用");
+    assert.equal(
+      (await resolve(p, { email: "different@example.com" })).lookup_status,
+      "email-mismatch",
     );
     assert.equal((await resolve(p, { user_id: 8 })).origin, null);
     // Known, verified identities must not silently inherit someone else's settings.
@@ -270,11 +356,19 @@ test("客户指定地址：后台鉴权、面板/邮箱隔离、实时变更、�
       200,
     );
     await app.close();
+    // Simulate the 4.0.17 table shape before starting the upgraded service.
+    const oldDb = new DatabaseSync(path.join(dir, "watch.sqlite"));
+    oldDb.exec("ALTER TABLE subscription_origins DROP COLUMN last_status");
+    oldDb.close();
     app = createApp({ dataDir: dir, secureCookie: false, background: false });
     await listen();
     const login = await post("/api/login", { username: "owner", password });
     assert.equal(login.status, 200);
     cookie = login.headers.get("set-cookie").split(";")[0];
+    assert.deepEqual((await getOptions()).origins, [
+      "https://choice-one.example.com",
+      "https://choice-two.example.com",
+    ]);
     assert.equal(
       (await resolve(p, { email: "changed@example.com" })).origin,
       "https://again.example.com",

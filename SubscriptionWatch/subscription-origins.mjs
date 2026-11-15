@@ -8,6 +8,61 @@ export function initSubscriptionOrigins(db) {
     revision TEXT NOT NULL,updated INTEGER NOT NULL,
     last_checked INTEGER,last_revision TEXT,
     PRIMARY KEY(panel,uid));`);
+  db.exec(`CREATE TABLE IF NOT EXISTS subscription_origin_options(
+    panel INTEGER PRIMARY KEY REFERENCES panels(id) ON DELETE CASCADE,
+    origins TEXT NOT NULL,revision TEXT NOT NULL);`);
+  if (
+    !db
+      .prepare("PRAGMA table_info(subscription_origins)")
+      .all()
+      .some((column) => column.name === "last_status")
+  )
+    db.exec("ALTER TABLE subscription_origins ADD COLUMN last_status TEXT");
+}
+
+export function subscriptionOriginOptions(db, panel) {
+  const row = db
+    .prepare(
+      "SELECT origins,revision FROM subscription_origin_options WHERE panel=?",
+    )
+    .get(panel);
+  const origins = row
+    ? JSON.parse(row.origins)
+    : db
+        .prepare(
+          `SELECT origin FROM subscription_origins
+    WHERE panel=? AND origin IS NOT NULL GROUP BY origin ORDER BY MAX(updated) DESC,origin LIMIT 20`,
+        )
+        .all(panel)
+        .map((item) => item.origin);
+  return { origins, revision: row?.revision || null };
+}
+
+export function saveSubscriptionOriginOptions(db, panel, data) {
+  if (
+    !Array.isArray(data.origins) ||
+    data.origins.length > 20 ||
+    data.origins.some((value) => typeof value !== "string")
+  )
+    throw Error("最多保存20个备选订阅地址，每行一个 HTTPS 根地址");
+  const origins = [
+    ...new Set(
+      data.origins.map((value) => normalizeSubscriptionOrigin(value.trim())),
+    ),
+  ];
+  return transaction(db, () => {
+    const previous = subscriptionOriginOptions(db, panel);
+    if (previous.revision !== (data.revision ?? null))
+      throw Object.assign(Error("备选地址已变化，请刷新后再保存"), {
+        status: 409,
+      });
+    const revision = randomBytes(16).toString("hex");
+    db.prepare(
+      `INSERT INTO subscription_origin_options(panel,origins,revision) VALUES(?,?,?)
+      ON CONFLICT(panel) DO UPDATE SET origins=excluded.origins,revision=excluded.revision`,
+    ).run(panel, JSON.stringify(origins), revision);
+    return { origins, revision };
+  });
 }
 
 export function normalizeSubscriptionOrigin(value) {
@@ -100,9 +155,12 @@ export function subscriptionOriginRows(db, panel, query, page) {
           ? "已恢复默认"
           : row.verified && row.current_email !== row.email
             ? "邮箱不匹配，已暂停"
-            : row.last_revision === row.revision
-              ? "插件已查询"
-              : "待客户刷新订阅信息",
+            : row.last_revision === row.revision &&
+                row.last_status === "email-mismatch"
+              ? "查询邮箱不匹配，未应用"
+              : row.last_revision === row.revision
+                ? "插件已查询"
+                : "尚未成功查询",
       })),
   };
 }
@@ -174,6 +232,13 @@ export async function receiveSubscriptionOrigin(req, res, { db, decrypt }) {
     row?.email === event.email &&
     (!known?.verified || known.email === event.email);
   const origin = matches ? row.origin : null;
+  const status = !row
+    ? "not-configured"
+    : !matches
+      ? "email-mismatch"
+      : row.origin
+        ? "configured"
+        : "default";
   // No subscription token is sent to or stored by the watch service.
   const payload = Buffer.from(
     JSON.stringify({
@@ -183,13 +248,14 @@ export async function receiveSubscriptionOrigin(req, res, { db, decrypt }) {
       user_id: event.user_id,
       email: event.email,
       origin,
+      lookup_status: status,
       expires: Date.now() + 30000,
     }),
   ).toString("base64");
-  if (matches)
+  if (row)
     db.prepare(
-      "UPDATE subscription_origins SET last_checked=?,last_revision=? WHERE panel=? AND uid=?",
-    ).run(Date.now(), row.revision, panel.id, event.user_id);
+      "UPDATE subscription_origins SET last_checked=?,last_revision=?,last_status=? WHERE panel=? AND uid=?",
+    ).run(Date.now(), row.revision, status, panel.id, event.user_id);
   return reply(res, 200, {
     payload,
     signature: createHmac("sha256", secret)

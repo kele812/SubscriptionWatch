@@ -20,6 +20,7 @@ class Plugin extends AbstractPlugin
 
     public function boot(): void
     {
+        \Plugin\SubscriptionWatchCollector\Services\SubscriptionOrigin::mark(request(), $this->getConfig());
         $this->filter('subscribe.url', function ($url) {
             return (new \Plugin\SubscriptionWatchCollector\Services\SubscriptionOrigin($this->getConfig()))->rewrite($url);
         });
@@ -60,7 +61,10 @@ class Plugin extends AbstractPlugin
         $dispatcher = app('events');
         self::$dispatchers ??= new \WeakMap();
         if (!isset(self::$dispatchers[$dispatcher])) {
-            $dispatcher->listen(RequestHandled::class, static function ($event) { Collector::handled($event); });
+            $dispatcher->listen(RequestHandled::class, static function ($event) {
+                \Plugin\SubscriptionWatchCollector\Services\SubscriptionOrigin::handled($event);
+                Collector::handled($event);
+            });
             self::$dispatchers[$dispatcher] = true;
         }
     }

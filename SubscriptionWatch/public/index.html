@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.17" />
+    <link rel="stylesheet" href="/style.css?v=4.0.18" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.17 · 独立采集 · 风险评估</small>
+        <small>v4.0.18 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -189,11 +189,27 @@
             Xboard，并配置好 HTTPS 和反向代理。
           </p>
           <p>
-            保存后，客户刷新 Xboard
-            页面并重新复制或一键导入订阅，即可读取新地址。已经导入客户端的旧链接不会自动改变。需要
-            4.0.17 采集插件及支持订阅地址扩展的 Xboard
-            版本；查询风控后台失败时使用站点默认地址。
+            保存后刷新 Xboard
+            管理员用户列表或客户订阅页面，复制或一键导入时使用新地址。已经导入客户端的旧链接不会自动改变。需要
+            4.0.18
+            采集插件；兼容标准管理员列表和客户订阅信息接口，查询风控后台失败时使用站点默认地址。
           </p>
+          <details class="help-details" id="subscriptionOriginOptionsBox">
+            <summary id="subscriptionOriginOptionsTitle">备选订阅地址</summary>
+            <form id="subscriptionOriginOptionsForm">
+              <label
+                >备选 HTTPS 根地址（每行一个，最多20个）<textarea
+                  name="origins"
+                  rows="4"
+                  placeholder="https://sub-a.example.com&#10;https://sub-b.example.com"
+                ></textarea>
+              </label>
+              <p>
+                按当前面板保存。首次未保存列表时，会提供本面板已指定过的地址供选择。新增或编辑客户时可直接下拉选择，也可以手动输入其他地址。修改此列表不会自动轮换订阅地址，也不会改变已分配给客户的地址。
+              </p>
+              <button>保存备选地址</button>
+            </form>
+          </details>
           <form id="subscriptionOriginFilters" class="filters">
             <label
               >搜索客户或地址<input
@@ -203,7 +219,9 @@
             <button>搜索</button>
           </form>
           <p>
-            列表保留所有已修改客户，包括已恢复默认的客户。“插件已查询”只表示插件读过当前设置，不表示客户已完成导入。
+            列表保留所有已修改客户，包括已恢复默认的客户。“插件已查询”只表示后台成功匹配查询，不代表客户已导入；出现“查询邮箱不匹配”时请核对客户
+            ID 和邮箱。一直未查询时，请核实插件启用状态并查看 Xboard
+            日志中的订阅地址查询诊断。
           </p>
           <div class="table-wrap">
             <table id="subscriptionOriginTable"></table>
@@ -862,6 +880,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.17"></script>
+    <script src="/app.js?v=4.0.18"></script>
   </body>
 </html>

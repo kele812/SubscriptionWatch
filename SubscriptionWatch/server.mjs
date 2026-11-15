@@ -51,6 +51,8 @@ import {
   saveSubscriptionOrigin,
   subscriptionOriginRows,
   receiveSubscriptionOrigin,
+  subscriptionOriginOptions,
+  saveSubscriptionOriginOptions,
 } from "./subscription-origins.mjs";
 import { validateCollectorUrls } from "./collector-urls.mjs";
 import {
@@ -1006,6 +1008,10 @@ export function createApp({
           );
         if (action === "subscription-origins" && method === "POST")
           return json(res, 200, saveSubscriptionOrigin(db, id, b));
+        if (action === "subscription-origins/options" && method === "GET")
+          return json(res, 200, subscriptionOriginOptions(db, id));
+        if (action === "subscription-origins/options" && method === "POST")
+          return json(res, 200, saveSubscriptionOriginOptions(db, id, b));
         if (action === "client-status/reset" && method === "POST") {
           if (b.confirm !== true) fail(400, "请确认重置该用户的24小时次数");
           if (
@@ -1363,7 +1369,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.17 ready");
+  console.log("Subscription Watch v4.0.18 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

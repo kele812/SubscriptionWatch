@@ -23,6 +23,10 @@ namespace App\Services\Plugin {
     }
 }
 namespace Illuminate\Support\Facades {
+    class Log {
+        public static array $entries = [];
+        public static function warning($message, $context = []) { self::$entries[] = $context; }
+    }
     class Http {
         public static string $mode = 'valid';
         public static ?string $origin = 'https://custom.example.com';
@@ -82,14 +86,33 @@ namespace {
     class TestAttributes {
         private array $values = [];
         public function has($key) { return array_key_exists($key, $this->values); }
-        public function get($key) { return $this->values[$key]; }
+        public function get($key) { return $this->values[$key] ?? null; }
         public function set($key, $value) { $this->values[$key] = $value; }
     }
-    function newRequest() { $GLOBALS['watchRequest'] = (object) ['attributes' => new TestAttributes()]; }
+    class TestWebRequest {
+        public TestAttributes $attributes;
+        public function __construct(private string $route) { $this->attributes = new TestAttributes(); }
+        public function path() { return $this->route; }
+    }
+    class TestHeaders {
+        public array $values;
+        public function __construct($type = 'application/json') { $this->values = ['Content-Type' => $type, 'Content-Length' => '123', 'ETag' => 'old']; }
+        public function get($key) { return $this->values[$key] ?? null; }
+        public function set($key, $value) { $this->values[$key] = $value; }
+        public function remove($key) { unset($this->values[$key]); }
+    }
+    class TestJsonResponse {
+        public TestHeaders $headers;
+        public function __construct(private string $raw, private int $code = 200, $type = 'application/json') { $this->headers = new TestHeaders($type); }
+        public function getStatusCode() { return $this->code; }
+        public function getContent() { return $this->raw; }
+        public function setContent($raw) { $this->raw = $raw; }
+    }
+    function newRequest($path = 'api/v1/user/getSubscribe') { $GLOBALS['watchRequest'] = new TestWebRequest($path); }
     function request() { return $GLOBALS['watchRequest']; }
     function app($name) {
         static $events;
-        return $events ??= new class { public function listen($event, $callback) {} };
+        return $events ??= new class { public array $callbacks = []; public function listen($event, $callback) { $this->callbacks[$event] = $callback; } };
     }
     require __DIR__ . '/../../SubscriptionWatchCollector/Services/Endpoints.php';
     require __DIR__ . '/../../SubscriptionWatchCollector/Services/SubscriptionOrigin.php';
@@ -106,9 +129,17 @@ namespace {
     $url = 'https://default.example.com/api/v1/client/subscribe?token=' . $token . '&flag=clash';
     $service = new SubscriptionOrigin($options);
     newRequest();
-    if (($argv[1] ?? '') === 'live') {
+    if (in_array($argv[1] ?? '', ['live', 'live-response'], true)) {
         Http::$mode = 'live';
-        echo $service->rewrite($url);
+        $url = 'https://default.example.com/s/' . $token . '?flag=clash';
+        if ($argv[1] === 'live') echo $service->rewrite($url);
+        else {
+            newRequest(getenv('WATCH_TEST_ROUTE') ?: 'api/v2/admin/user/fetch');
+            $plugin = new \Plugin\SubscriptionWatchCollector\Plugin(); $plugin->options = $options; $plugin->boot();
+            $response = new TestJsonResponse(json_encode(['data' => ['rows' => [['id' => 7, 'subscribe_url' => $url]]]], JSON_THROW_ON_ERROR));
+            (app('events')->callbacks['Illuminate\\Foundation\\Http\\Events\\RequestHandled'])((object) ['request' => request(), 'response' => $response]);
+            echo $response->getContent();
+        }
         exit;
     }
     $checks = 0;
@@ -150,5 +181,60 @@ namespace {
     $plugin->boot();
     same(isset($plugin->filters['subscribe.url']), true, 'official Xboard filter registered');
     same(($plugin->filters['subscribe.url'])($url), str_replace('https://default.example.com', Http::$origin, $url), 'registered filter rewrites customer link');
+    // No helper filter is called here: exercise the actual RequestHandled compatibility listener.
+    $originalData = ['data' => ['rows' => [['id' => 7, 'subscribe_url' => $url]], 'total' => 1], 'documentation_url' => $url];
+    $raw = json_encode($originalData, JSON_THROW_ON_ERROR);
+    foreach (['api/v2/admin/user/fetch', 'api/v1/custom-admin/user/fetch', 'api/v1/user/getSubscribe', 'api/v2/user/getSubscribe', 'api/v2/admin/user/getUserInfoById'] as $route) {
+        newRequest($route); $plugin->boot();
+        $response = new TestJsonResponse($raw);
+        $event = (object) ['request' => request(), 'response' => $response];
+        (app('events')->callbacks['Illuminate\\Foundation\\Http\\Events\\RequestHandled'])($event);
+        $result = json_decode($response->getContent(), true);
+        same($result['data']['rows'][0]['subscribe_url'], str_replace('https://default.example.com', Http::$origin, $url), 'response compatibility: ' . $route);
+        same($result['documentation_url'], $url, 'unrelated URL unchanged');
+        same($result['data']['total'], 1, 'pagination metadata unchanged');
+        same($response->headers->get('Cache-Control'), 'private, no-store', 'changed link is not cached');
+        same($response->headers->get('Content-Length'), null, 'old content length removed');
+    }
+    foreach ([['api/v1/client/subscribe', 200, 'application/json'], ['api/v2/admin/server/fetch', 200, 'application/json'], ['api/v1/user/getSubscribe', 403, 'application/json'], ['api/v1/user/getSubscribe', 200, 'text/html']] as [$route, $status, $type]) {
+        newRequest($route); $plugin->boot(); $response = new TestJsonResponse($raw, $status, $type);
+        SubscriptionOrigin::handled((object) ['request' => request(), 'response' => $response]);
+        same($response->getContent(), $raw, 'exclude non-user, failed or HTML responses');
+    }
+    newRequest('api/v1/user/getSubscribe'); $plugin->boot();
+    $alreadyFiltered = json_encode(['data' => ['subscribe_url' => str_replace('https://default.example.com', Http::$origin, $url)]]);
+    $response = new TestJsonResponse($alreadyFiltered);
+    SubscriptionOrigin::handled((object) ['request' => request(), 'response' => $response]);
+    same($response->getContent(), $alreadyFiltered, 'helper-filtered body is not rewritten again');
+    same($response->headers->get('Cache-Control'), 'private, no-store', 'helper-filtered responses are also not cached');
+    newRequest('api/v1/user/resetSecurity'); $plugin->boot();
+    $response = new TestJsonResponse(json_encode(['data' => $url]));
+    SubscriptionOrigin::handled((object) ['request' => request(), 'response' => $response]);
+    same(json_decode($response->getContent(), true)['data'], str_replace('https://default.example.com', Http::$origin, $url), 'security reset result uses same origin without resetting any token');
+    newRequest();
+    $pathUrl = 'https://default.example.com/s/' . $token . '?flag=clash';
+    same($service->rewrite($pathUrl), str_replace('https://default.example.com', Http::$origin, $pathUrl), 'path-token URL');
+    newRequest();
+    $customPathUrl = 'https://default.example.com/' . str_repeat('d', 32) . '/' . $token;
+    same($service->rewrite($customPathUrl), str_replace('https://default.example.com', Http::$origin, $customPathUrl), 'custom path prefix must not be mistaken for the token');
+    newRequest();
+    $conflictingQueryUrl = 'https://default.example.com/s/' . $token . '?token=' . str_repeat('b', 32);
+    $service->rewrite($conflictingQueryUrl);
+    same(Http::$last['user_id'], 7, 'path route owner takes precedence over query');
+    newRequest(); Http::$mode = 'unavailable';
+    $before = Http::$calls;
+    same($service->rewrite($url), $url, 'admin lookup failure keeps original URL');
+    $afterFirstFailure = Http::$calls;
+    same($afterFirstFailure > $before, true, 'first failure attempts network');
+    $service->rewrite(str_replace($token, str_repeat('b', 32), $url));
+    same(Http::$calls, $afterFirstFailure, 'same request does not repeat an unavailable backend for every customer');
+    Http::$mode = 'valid';
+    newRequest();
+    same($service->rewrite($url), str_replace('https://default.example.com', Http::$origin, $url), 'next request retries after recovery');
+    $codes = array_column(\Illuminate\Support\Facades\Log::$entries, 'code');
+    same(in_array('unavailable', $codes, true), true, 'fixed transport diagnostic');
+    same(in_array('http-403', $codes, true), true, 'fixed HTTP diagnostic');
+    same(in_array('response-signature-invalid', $codes, true), true, 'fixed signature diagnostic');
+    same(str_contains(json_encode(\Illuminate\Support\Facades\Log::$entries), $token), false, 'diagnostic never logs token');
     echo 'SubscriptionOrigin PHP checks passed: ' . $checks . PHP_EOL;
 }

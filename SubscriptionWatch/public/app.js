@@ -20,6 +20,7 @@ let me,
   toastTimer,
   refreshController = null;
 let userHistoryState = null;
+let subscriptionOriginOptionsState = { panel: 0, origins: [], revision: null };
 function requestStatusText(value) {
   const code = Number(value);
   const meanings = {
@@ -813,12 +814,10 @@ function ask(title, help, fields, fn) {
     const label = document.createElement("label");
     label.textContent = f.label;
     const input = document.createElement("input");
-    Object.assign(input, {
-      name: f.name,
-      type: f.type || "text",
-      required: true,
-      value: f.value || "",
-    });
+    input.type = f.type || "text";
+    input.name = f.name;
+    input.required = f.required !== false;
+    input.value = f.value || "";
     label.append(input);
     $("#actionFields").append(label);
   }
@@ -1251,6 +1250,20 @@ async function refresh() {
       );
     }
     if (panelId && tab === "subscriptionOrigins") {
+      const options = await read(endpoint("subscription-origins/options"));
+      subscriptionOriginOptionsState = { panel: panelId, ...options };
+      const optionsInput = $("#subscriptionOriginOptionsForm").elements.origins;
+      if (
+        optionsInput.dataset.panel !== String(panelId) ||
+        optionsInput.dataset.dirty !== "1"
+      ) {
+        optionsInput.value = options.origins.join("\n");
+        optionsInput.dataset.panel = String(panelId);
+        optionsInput.dataset.revision = options.revision || "";
+        delete optionsInput.dataset.dirty;
+      }
+      $("#subscriptionOriginOptionsTitle").textContent =
+        `备选订阅地址 · 可选 ${options.origins.length} 个`;
       const d = await read(
         endpoint("subscription-origins") +
           "?" +
@@ -1759,7 +1772,11 @@ $("#importBlacklist").onclick = () =>
       }
     },
   );
-$("#refresh").onclick = run(refresh);
+$("#refresh").onclick = run(async () => {
+  if (tab === "subscriptionOrigins")
+    delete $("#subscriptionOriginOptionsForm").elements.origins.dataset.dirty;
+  await refresh();
+});
 $("#filters").onsubmit = run(async () => {
   page = 1;
   await refresh();
@@ -1901,6 +1918,12 @@ $("#addWhite").onclick = () => {
 };
 function editSubscriptionOrigin(row = null, id = panelId) {
   if (!id) return;
+  const origins =
+    subscriptionOriginOptionsState.panel === id
+      ? [...subscriptionOriginOptionsState.origins]
+      : [];
+  if (row?.origin && !origins.includes(row.origin)) origins.unshift(row.origin);
+  const useChoices = origins.length > 0;
   ask(
     row ? "修改客户订阅地址" : "新增客户指定订阅地址",
     row
@@ -1919,18 +1942,68 @@ function editSubscriptionOrigin(row = null, id = panelId) {
         label: "HTTPS 订阅根地址，例如 https://sub.example.com",
         value: row?.origin || "",
         type: "url",
+        required: !useChoices,
       },
     ],
     (b) =>
       api(`/api/panels/${id}/subscription-origins`, {
         uid: row?.uid ?? Number(b.uid),
         email: b.email.trim(),
-        origin: b.origin.trim(),
+        origin:
+          b.originChoice && b.originChoice !== "manual"
+            ? b.originChoice
+            : (b.origin || "").trim(),
         revision: row?.revision ?? null,
       }),
   );
+  if (useChoices) {
+    const label = document.createElement("label");
+    label.textContent = "选择订阅地址";
+    const select = document.createElement("select");
+    select.name = "originChoice";
+    for (const origin of origins) {
+      const option = document.createElement("option");
+      option.value = origin;
+      option.textContent = origin;
+      select.append(option);
+    }
+    const manualOption = document.createElement("option");
+    manualOption.value = "manual";
+    manualOption.textContent = "手动输入其他地址";
+    select.append(manualOption);
+    select.value = row?.origin || origins[0];
+    label.append(select);
+    const manualInput = $("#actionForm").elements.origin;
+    manualInput.parentElement.before(label);
+    const toggle = () => {
+      manualInput.parentElement.hidden = select.value !== "manual";
+      manualInput.required = select.value === "manual";
+    };
+    select.onchange = toggle;
+    toggle();
+  }
 }
 $("#addSubscriptionOrigin").onclick = () => editSubscriptionOrigin();
+$("#subscriptionOriginOptionsForm").elements.origins.oninput = (e) => {
+  e.target.dataset.dirty = "1";
+};
+$("#subscriptionOriginOptionsForm").onsubmit = run(async () => {
+  const id = panelId;
+  if (!id) return;
+  const input = $("#subscriptionOriginOptionsForm").elements.origins;
+  if (input.dataset.panel !== String(id))
+    throw Error("请等待当前面板地址列表加载完成");
+  await api(`/api/panels/${id}/subscription-origins/options`, {
+    origins: input.value
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean),
+    revision: input.dataset.revision || null,
+  });
+  if (input.dataset.panel === String(id)) delete input.dataset.dirty;
+  toast("备选订阅地址已保存");
+  await refresh();
+});
 $("#subscriptionOriginFilters").onsubmit = run(async (e) => {
   page = 1;
   await refresh();
