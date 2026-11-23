@@ -1,10 +1,7 @@
 const message = document.querySelector("#message");
-const address = document.querySelector("#subscription-address");
-if (address) address.onclick = () => address.select();
-for (const button of document.querySelectorAll("[data-copy]"))
+for (const button of document.querySelectorAll('[data-copy="page"]'))
   button.onclick = async () => {
-    const text =
-      button.dataset.copy === "page" ? location.href : address?.value;
+    const text = location.href;
     if (!text) return;
     button.disabled = true;
     let copied = false;
@@ -31,12 +28,8 @@ for (const button of document.querySelectorAll("[data-copy]"))
       message.dataset.error = String(!copied);
       message.setAttribute("role", copied ? "status" : "alert");
       message.textContent = copied
-        ? "已复制，请粘贴到浏览器或 Shadowrocket 中。"
-        : "浏览器未允许复制，请长按地址栏复制此页链接，或展开订阅地址后手动复制。";
-      if (!copied && address) {
-        address.closest("details").open = true;
-        address.select();
-      }
+        ? "已复制此页链接，请粘贴到 Safari 或其他浏览器中。"
+        : "浏览器未允许复制，请长按地址栏复制此页链接。";
     } finally {
       button.disabled = false;
     }

@@ -233,7 +233,7 @@ export async function subscriptionImportPage(
       status: 200,
       html: layout(
         "导入到 Shadowrocket",
-        `<span class="eyebrow">iOS · SHADOWROCKET</span><h1>将订阅导入<br>Shadowrocket</h1><p>请先在 iPhone 或 iPad 上安装 Shadowrocket，再点击下方按钮。系统可能会提示确认打开应用。</p><a class="primary" id="shadowrocket-import" href="${escape(shadowrocketUrl(url))}">导入到 Shadowrocket</a><button data-copy="subscription">复制订阅地址</button><p class="steps">未能打开？请在 Safari 中重试，或复制订阅地址后，在 Shadowrocket 中手动添加订阅。</p><details><summary>查看当前订阅地址</summary><input id="subscription-address" aria-label="当前订阅地址" readonly value="${escape(url)}"></details>`,
+        `<span class="eyebrow">iOS · SHADOWROCKET</span><h1>将订阅导入<br>Shadowrocket</h1><p>请先在 iPhone 或 iPad 上安装 Shadowrocket，再点击下方按钮。系统可能会提示确认打开应用。</p><a class="primary" id="shadowrocket-import" href="${escape(shadowrocketUrl(url))}">导入到 Shadowrocket</a><p class="steps">未能打开？请确认已安装 Shadowrocket，并在 Safari 中重新打开此页。</p>`,
       ),
     };
   } catch (error) {
