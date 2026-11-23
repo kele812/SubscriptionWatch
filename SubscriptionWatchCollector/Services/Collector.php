@@ -77,7 +77,7 @@ class Collector
         $capture = $request->attributes->get(self::MARKER);
         if (!$this->ready() || !$capture) throw new \RuntimeException('review unavailable');
         $event = $capture['event'];
-        $body = json_encode([
+        $payload = [
             'schema' => 1,
             'event_id' => $event['event_id'],
             'ts' => $event['ts'],
@@ -85,7 +85,12 @@ class Collector
             'email' => $event['email'],
             'ip' => $event['ip'],
             'ua' => $event['ua'],
-        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+        ];
+        // Only this request's dedicated link can claim the exemption. Never queue or log the raw grant.
+        $grant = $request->input('watch_import');
+        if (is_string($grant) && preg_match('/^[a-f0-9]{64}$/D', $grant))
+            $payload['import_fingerprint'] = hash('sha256', $grant);
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
         $timestamp = (string) time();
         $secret = (string) $this->options['secret'];
         $signature = hash_hmac('sha256', $timestamp . "\n" . $body, $secret);
@@ -161,7 +166,7 @@ class Collector
             for ($i = 0; $i < 3; $i++) {
                 $members = $buffer->batch();
                 $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '4.0.21', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+                $payload = json_encode(['schema' => 1, 'version' => '4.0.22', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Endpoints::post(

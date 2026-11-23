@@ -1,4 +1,5 @@
 const labels = {
+  "import-link-invalid": "专用订阅链接白名单凭证已失效",
   "daily-limit": "超过每人 24 小时订阅请求上限",
   ua: "非指定客户端获取订阅",
   cloud: "云服务器 IP 获取订阅",
@@ -11,12 +12,18 @@ const labels = {
 };
 
 export function describeReviewCodes(codes, activeReasons = []) {
-  const original = [...new Set(activeReasons.map((reason) => reason?.label).filter(Boolean))];
-  return [...new Set(codes.map((code) =>
-    code === "active-risk"
-      ? original.length
-        ? `已有可疑标记（原触发：${original.join("、")}）`
-        : "已有可疑标记（原触发规则未保存）"
-      : labels[code] || "其他风控规则（规则名称未保存）",
-  ))];
+  const original = [
+    ...new Set(activeReasons.map((reason) => reason?.label).filter(Boolean)),
+  ];
+  return [
+    ...new Set(
+      codes.map((code) =>
+        code === "active-risk"
+          ? original.length
+            ? `已有可疑标记（原触发：${original.join("、")}）`
+            : "已有可疑标记（原触发规则未保存）"
+          : labels[code] || "其他风控规则（规则名称未保存）",
+      ),
+    ),
+  ];
 }

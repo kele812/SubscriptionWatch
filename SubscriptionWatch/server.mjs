@@ -61,6 +61,12 @@ import {
 } from "./subscription-origins.mjs";
 import { validateCollectorUrls } from "./collector-urls.mjs";
 import {
+  initSubscriptionImports,
+  createSubscriptionImport,
+  revokeSubscriptionImport,
+  subscriptionImportPage,
+} from "./subscription-imports.mjs";
+import {
   clientStatusByUsers,
   clientStatusRows,
   resetClientDailyCount,
@@ -172,12 +178,13 @@ export function createApp({
       migrateUaRiskV401(db);
       initDestinations(db);
       initSubscriptionOrigins(db);
+      initSubscriptionImports(db);
       // Verify restored encrypted credentials before accepting the replacement.
       if (validate) {
         try {
           for (const row of db
             .prepare(
-              "SELECT secret value FROM panels UNION ALL SELECT token value FROM telegram WHERE token IS NOT NULL UNION ALL SELECT secret value FROM destination_nodes",
+              "SELECT secret value FROM panels UNION ALL SELECT token value FROM telegram WHERE token IS NOT NULL UNION ALL SELECT secret value FROM destination_nodes UNION ALL SELECT secret value FROM subscription_imports",
             )
             .all())
             decrypt(row.value);
@@ -384,9 +391,33 @@ export function createApp({
         return json(res, 200, {
           needsSetup: !initialized(),
         });
+      if (method === "GET" && route.startsWith("/sr-import/")) {
+        const token = route.slice("/sr-import/".length);
+        const page = await subscriptionImportPage(
+          { db, decrypt, fetcher },
+          token,
+          req.headers["user-agent"] || "",
+          (hash) => throttle("subscription-import:" + hash, 30),
+        );
+        res.writeHead(page.status, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Referrer-Policy": "no-referrer",
+          "X-Robots-Tag": "noindex, nofollow, noarchive",
+          "Content-Security-Policy":
+            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+        });
+        return res.end(page.html);
+      }
       if (
         method === "GET" &&
-        ["/", "/app.js", "/auth.js", "/style.css"].includes(route)
+        [
+          "/",
+          "/app.js",
+          "/auth.js",
+          "/style.css",
+          "/shadowrocket-import.js",
+        ].includes(route)
       ) {
         if (route === "/app.js" && !account) fail(401, "请先登录");
         const file =
@@ -1056,6 +1087,21 @@ export function createApp({
               b.query,
             ),
           );
+        if (action === "subscription-origins/import-link" && method === "POST")
+          return json(
+            res,
+            200,
+            await createSubscriptionImport(
+              { db, encrypt, decrypt, fetcher },
+              panel,
+              b,
+            ),
+          );
+        if (
+          action === "subscription-origins/import-link/revoke" &&
+          method === "POST"
+        )
+          return json(res, 200, revokeSubscriptionImport(db, panel, b));
         if (action === "subscription-origins/options" && method === "GET")
           return json(res, 200, subscriptionOriginOptions(db, id));
         if (action === "subscription-origins/options" && method === "POST")
@@ -1417,7 +1463,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.21 ready");
+  console.log("Subscription Watch v4.0.22 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

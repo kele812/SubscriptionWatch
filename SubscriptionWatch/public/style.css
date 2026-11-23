@@ -1061,3 +1061,10 @@ textarea:user-invalid {
   min-width: 22rem;
   font-size: 13px;
 }
+#shadowrocketShareDialog {
+  width: min(600px, 94vw);
+}
+#shadowrocketShareUrl {
+  width: 100%;
+  min-width: 0;
+}

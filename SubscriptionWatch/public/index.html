@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.21" />
+    <link rel="stylesheet" href="/style.css?v=4.0.22" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.21 · 独立采集 · 风险评估</small>
+        <small>v4.0.22 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -190,7 +190,7 @@
             和反向代理。同一面板、同一客户只保留一条设置；搜索后修改与手动新增以最后一次保存为准，搜索本身不会修改地址。
           </p>
           <p>
-            需要 4.0.21 采集插件。配置 Xboard
+            需要 4.0.22 采集插件。配置 Xboard
             地址后，保存修改或删除会立即尝试同步到 Xboard
             本地数据库；确认同步成功后，刷新管理员或客户页面再复制／导入。
             列表和复制操作只读取本地设置，不逐客户远程查询风控。已导入客户端的旧链接需重新导入。
@@ -858,6 +858,29 @@
         </div>
       </main>
     </div>
+    <dialog
+      id="shadowrocketShareDialog"
+      aria-labelledby="shadowrocketShareTitle"
+    >
+      <h2 id="shadowrocketShareTitle">Shadowrocket 导入页</h2>
+      <p id="shadowrocketShareCustomer"></p>
+      <label
+        >发给客户的分享链接<input id="shadowrocketShareUrl" readonly
+      /></label>
+      <p>
+        长期有效，直到手动撤销。客户打开时读取当前订阅地址；通过此页导入的专用链接享受白名单，普通订阅地址继续按规则检查。访问与次数照常登记，白名单仅作用于该次专用请求。
+      </p>
+      <p>
+        微信／QQ 内打开会提示使用 Safari
+        或其他浏览器。撤销后导入页失效，专用订阅恢复普通风控检查，不重置 Token。
+      </p>
+      <p id="shadowrocketShareStatus" role="status"></p>
+      <div class="actions">
+        <button id="shadowrocketShareCopy" type="button">复制分享链接</button>
+        <button id="shadowrocketShareRevoke" type="button">撤销此链接</button>
+        <button id="shadowrocketShareClose" type="button">关闭</button>
+      </div>
+    </dialog>
     <dialog id="detail">
       <h2>记录详情</h2>
       <pre id="detailText"></pre>
@@ -905,6 +928,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.21"></script>
+    <script src="/app.js?v=4.0.22"></script>
   </body>
 </html>

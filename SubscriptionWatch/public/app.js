@@ -23,6 +23,8 @@ let userHistoryState = null;
 let subscriptionOriginOptionsState = { panel: 0, origins: [], revision: null };
 let subscriptionOriginLookupEpoch = 0,
   subscriptionOriginLookupRequest = 0;
+let subscriptionImportState = null,
+  subscriptionImportRequest = 0;
 function requestStatusText(value) {
   const code = Number(value);
   const meanings = {
@@ -145,7 +147,12 @@ function visitOutcomeReasons(row) {
 }
 function visitResultCell(row) {
   const reasons = visitOutcomeReasons(row);
-  if (row.ip_whitelisted !== 1 && !reasons.length) return visitStatusBadge(row);
+  if (
+    row.ip_whitelisted !== 1 &&
+    row.import_whitelisted !== 1 &&
+    !reasons.length
+  )
+    return visitStatusBadge(row);
   const result = document.createElement("span");
   result.className = "visit-result-group";
   result.append(visitStatusBadge(row));
@@ -162,6 +169,15 @@ function visitResultCell(row) {
       visitStatusText(row) === "订阅成功"
         ? "通过 IP／域名白名单订阅"
         : "本次命中 IP／域名白名单";
+    result.append(note);
+  }
+  if (row.import_whitelisted === 1) {
+    const note = document.createElement("span");
+    note.className = "visit-whitelist-note";
+    note.textContent =
+      visitStatusText(row) === "订阅成功"
+        ? "通过专用链接白名单订阅"
+        : "本次命中专用链接白名单";
     result.append(note);
   }
   return result;
@@ -483,6 +499,7 @@ function sourceTraceDetail(r) {
     原始UA: r.ua,
     结果: visitStatusText(r),
     本次IP白名单: r.ip_whitelisted,
+    本次专用链接白名单: r.import_whitelisted,
     当前状态: r.currentUser ? currentStatusText(r.currentUser) : null,
     请求响应: requestStatusText(r.status),
     触发规则: r.review_reasons,
@@ -985,6 +1002,7 @@ $("#addPanel").onclick = () =>
   );
 $("#panelSelect").onchange = run(async () => {
   clearSubscriptionOriginLookup();
+  clearSubscriptionImportShare();
   panelId = Number($("#panelSelect").value);
   resetBatch();
   destinationBefore = null;
@@ -1001,6 +1019,7 @@ $("#panelSelect").onchange = run(async () => {
 });
 function showTab(name) {
   if (name !== tab) clearSubscriptionOriginLookup();
+  if (name !== tab) clearSubscriptionImportShare();
   tab = name;
   page = 1;
   resetBatch();
@@ -1312,6 +1331,9 @@ async function refresh() {
           format(row.updated),
           format(d.sync.last_contact),
           actions(
+            button("Shadowrocket 导入页", () =>
+              openSubscriptionImport(row.uid, row.email, id),
+            ),
             button("获取订阅地址", () =>
               getSubscriptionOrigin(String(row.uid), id, { email: row.email }),
             ),
@@ -1993,6 +2015,9 @@ function renderSubscriptionOriginResult(result, id) {
             user.id + " / " + user.email,
             address,
             actions(
+              button("Shadowrocket 导入页", () =>
+                openSubscriptionImport(user.id, user.email, id),
+              ),
               button("复制订阅地址", () =>
                 getSubscriptionOrigin(String(user.id), id, {
                   email: user.email,
@@ -2159,6 +2184,66 @@ function editSubscriptionOrigin(row = null, id = panelId) {
   }
 }
 $("#addSubscriptionOrigin").onclick = () => editSubscriptionOrigin();
+function clearSubscriptionImportShare() {
+  subscriptionImportRequest++;
+  subscriptionImportState = null;
+  $("#shadowrocketShareUrl").value = "";
+  $("#shadowrocketShareStatus").textContent = "";
+  if ($("#shadowrocketShareDialog").open) $("#shadowrocketShareDialog").close();
+}
+async function openSubscriptionImport(uid, email, id = panelId) {
+  clearSubscriptionImportShare();
+  const requestId = ++subscriptionImportRequest,
+    epoch = subscriptionOriginLookupEpoch;
+  const result = await api(
+    `/api/panels/${id}/subscription-origins/import-link`,
+    { uid, email },
+  );
+  if (
+    id !== panelId ||
+    tab !== "subscriptionOrigins" ||
+    epoch !== subscriptionOriginLookupEpoch ||
+    requestId !== subscriptionImportRequest
+  )
+    return;
+  const url = new URL(result.path, location.origin).href;
+  subscriptionImportState = { ...result, panel: id, url };
+  $("#shadowrocketShareCustomer").textContent = `客户 ${uid} / ${email}`;
+  $("#shadowrocketShareUrl").value = url;
+  $("#shadowrocketShareDialog").showModal();
+}
+$("#shadowrocketShareClose").onclick = clearSubscriptionImportShare;
+$("#shadowrocketShareDialog").oncancel = (event) => {
+  event.preventDefault();
+  clearSubscriptionImportShare();
+};
+$("#shadowrocketShareCopy").onclick = run(async () => {
+  const state = subscriptionImportState;
+  if (!state || state.panel !== panelId) return;
+  const copied = await copySubscriptionOrigin(state.url);
+  if (subscriptionImportState !== state) return;
+  $("#shadowrocketShareStatus").textContent = copied
+    ? "已复制分享链接，可发送给客户。"
+    : "浏览器未允许复制，请选中链接后手动复制。";
+  $("#shadowrocketShareStatus").className = copied ? "" : "error";
+  if (!copied) $("#shadowrocketShareUrl").select();
+});
+$("#shadowrocketShareUrl").onclick = () => $("#shadowrocketShareUrl").select();
+$("#shadowrocketShareRevoke").onclick = () => {
+  const state = subscriptionImportState;
+  if (!state) return;
+  clearSubscriptionImportShare();
+  ask(
+    "撤销 Shadowrocket 导入页",
+    "撤销后此分享链接及专用链接白名单凭证失效。已导入的订阅恢复普通风控检查；不会重置客户 Token。",
+    [],
+    () =>
+      api(
+        `/api/panels/${state.panel}/subscription-origins/import-link/revoke`,
+        { uid: state.uid, email: state.email, revision: state.revision },
+      ),
+  );
+};
 $("#subscriptionOriginSyncForm").elements.xboard_url.oninput = (e) => {
   e.target.dataset.dirty = "1";
 };

@@ -103,11 +103,9 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
       (e.delivered === true &&
         (e.status < 200 || e.status >= 300 || e.bytes === 0)) ||
       (e.failure_code !== undefined &&
-        (![
-          "review-unavailable",
-          "review-invalid",
-          "review-error",
-        ].includes(e.failure_code) ||
+        (!["review-unavailable", "review-invalid", "review-error"].includes(
+          e.failure_code,
+        ) ||
           e.status !== 403 ||
           e.delivered === true))
     )
@@ -125,7 +123,7 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
         "INSERT INTO subjects(panel,uid,email,verified) VALUES(?,?,?,1) ON CONFLICT(panel,uid) DO UPDATE SET white=CASE WHEN subjects.email=excluded.email THEN subjects.white ELSE 0 END,email=excluded.email,verified=1",
       );
       const visit = db.prepare(
-        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,proxy_ip,proxy_name,proxy_verified,status,ms,bytes,event_id,token_fingerprint,content_type,delivered,review_blocked,review_reasons,ip_whitelisted,failure_code) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,proxy_ip,proxy_name,proxy_verified,status,ms,bytes,event_id,token_fingerprint,content_type,delivered,review_blocked,review_reasons,ip_whitelisted,failure_code,import_whitelisted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       );
       const sample = db.prepare(
         "INSERT INTO samples(panel,uid,ts,ip,ua,proxy_ip,proxy_name,proxy_verified,status,delivered) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -144,8 +142,17 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
             ? new URL(`http://[${e.ip}]/`).hostname.slice(1, -1)
             : e.ip;
         subject.run(panel.id, e.user_id, e.email);
-        const reviewed = db.prepare("SELECT denied,reason_labels,ip_whitelisted FROM review_decisions WHERE panel=? AND event_id=?")
+        const reviewed = db
+          .prepare(
+            "SELECT denied,reason_labels,ip_whitelisted,import_whitelisted,uid,email,ip,ua FROM review_decisions WHERE panel=? AND event_id=?",
+          )
           .get(panel.id, e.event_id);
+        const importWhitelisted =
+          reviewed?.import_whitelisted === 1 &&
+          reviewed.uid === e.user_id &&
+          reviewed.email === e.email &&
+          reviewed.ip === e.ip &&
+          reviewed.ua === e.ua;
         visit.run(
           panel.id,
           e.ts,
@@ -165,39 +172,58 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           e.token_fingerprint ?? null,
           e.content_type ?? null,
           e.delivered === undefined ? null : Number(e.delivered),
-          reviewed?.denied === 1 && e.status === 302 && e.delivered !== true ? 1 : 0,
-          reviewed?.denied === 1 && e.status === 302 && e.delivered !== true ? reviewed.reason_labels : null,
+          reviewed?.denied === 1 && e.status === 302 && e.delivered !== true
+            ? 1
+            : 0,
+          reviewed?.denied === 1 && e.status === 302 && e.delivered !== true
+            ? reviewed.reason_labels
+            : null,
           reviewed?.ip_whitelisted ?? null,
           e.failure_code ?? null,
+          reviewed ? Number(importWhitelisted) : null,
         );
-        sample.run(
-          panel.id,
-          e.user_id,
-          e.ts,
-          address,
-          e.ua,
-          e.proxy_ip ?? null,
-          e.proxy_name ?? null,
-          e.proxy_verified === undefined ? null : Number(e.proxy_verified),
-          e.status,
-          e.delivered === undefined ? null : Number(e.delivered),
-        );
+        if (!importWhitelisted)
+          sample.run(
+            panel.id,
+            e.user_id,
+            e.ts,
+            address,
+            e.ua,
+            e.proxy_ip ?? null,
+            e.proxy_name ?? null,
+            e.proxy_verified === undefined ? null : Number(e.proxy_verified),
+            e.status,
+            e.delivered === undefined ? null : Number(e.delivered),
+          );
         if (reviewed) {
-          const enforced = Number(reviewed.denied === 1 && [302, 403].includes(e.status) && e.delivered !== true);
-          db.prepare("UPDATE review_decisions SET delivered=?,enforced=? WHERE panel=? AND event_id=?")
-            .run(Number(e.delivered === true && e.status >= 200 && e.status < 300), enforced, panel.id, e.event_id);
+          const enforced = Number(
+            reviewed.denied === 1 &&
+              [302, 403].includes(e.status) &&
+              e.delivered !== true,
+          );
+          db.prepare(
+            "UPDATE review_decisions SET delivered=?,enforced=? WHERE panel=? AND event_id=?",
+          ).run(
+            Number(e.delivered === true && e.status >= 200 && e.status < 300),
+            enforced,
+            panel.id,
+            e.event_id,
+          );
         }
-        if (!touched.has(e.user_id)) touched.set(e.user_id, []);
-        touched.get(e.user_id).push({
-          ts: e.ts,
-          ip: address,
-          ua: e.ua,
-          proxy_ip: e.proxy_ip ?? null,
-          proxy_name: e.proxy_name ?? null,
-          proxy_verified: e.proxy_verified === undefined ? null : Number(e.proxy_verified),
-          status: e.status,
-          delivered: e.delivered === undefined ? null : Number(e.delivered),
-        });
+        if (!importWhitelisted) {
+          if (!touched.has(e.user_id)) touched.set(e.user_id, []);
+          touched.get(e.user_id).push({
+            ts: e.ts,
+            ip: address,
+            ua: e.ua,
+            proxy_ip: e.proxy_ip ?? null,
+            proxy_name: e.proxy_name ?? null,
+            proxy_verified:
+              e.proxy_verified === undefined ? null : Number(e.proxy_verified),
+            status: e.status,
+            delivered: e.delivered === undefined ? null : Number(e.delivered),
+          });
+        }
         inserted++;
       }
       db.prepare(

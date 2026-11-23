@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import { defaults, transaction } from "./model.mjs";
 import { describeReviewCodes } from "./review-labels.mjs";
 import { isWhitelisted } from "./whitelist.mjs";
+import { isSubscriptionImportWhitelisted } from "./subscription-imports.mjs";
 import {
   activeBlacklistedIP,
   blacklistSettings,
@@ -99,7 +100,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.21",
+    ruleVersion: "4.0.22",
   };
 }
 
@@ -122,7 +123,7 @@ function regionRows(
     .all(panel.id, event.user_id, from, now);
   const reviewed = db
     .prepare(
-      "SELECT ip,ua,MAX(ts) ts FROM review_decisions WHERE panel=? AND uid=? AND denied=0 AND ts>? AND ts<=? AND (delivered=1 OR (delivered IS NULL AND ts>?)) GROUP BY ip,ua",
+      "SELECT ip,ua,MAX(ts) ts FROM review_decisions WHERE panel=? AND uid=? AND denied=0 AND import_whitelisted=0 AND ts>? AND ts<=? AND (delivered=1 OR (delivered IS NULL AND ts>?)) GROUP BY ip,ua",
     )
     .all(panel.id, event.user_id, from, now, now - 180000);
   const latest = new Map();
@@ -193,12 +194,20 @@ function decide(db, panel, event, geo, now) {
     )
     .get(panel.id, event.user_id);
   const allowlisted = isWhitelisted(rules, event.ip, now);
+  const importWhitelisted = isSubscriptionImportWhitelisted(
+    db,
+    panel.id,
+    event.user_id,
+    event.email,
+    event.import_fingerprint,
+  );
   // Explicit user and source-IP exemptions take precedence over every risk rule.
-  if (subject?.white || allowlisted)
+  if (subject?.white || allowlisted || importWhitelisted)
     return {
       codes: [],
       redirect: rules.reviewRedirectUrl,
       ipWhitelisted: allowlisted,
+      importWhitelisted,
     };
   const codes = [];
   if (
@@ -385,17 +394,33 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
     event.email.length > 254 ||
     typeof event.ua !== "string" ||
     event.ua.length > 1024 ||
-    !isIP(event.ip)
+    !isIP(event.ip) ||
+    (event.import_fingerprint !== undefined &&
+      (typeof event.import_fingerprint !== "string" ||
+        !/^[a-f0-9]{64}$/.test(event.import_fingerprint)))
   )
     return reply(res, 422, { error: "invalid event" });
   const decision = transaction(db, () => {
     const prior = db
       .prepare(
-        "SELECT denied,codes FROM review_decisions WHERE panel=? AND event_id=?",
+        "SELECT denied,codes,uid,email,import_whitelisted FROM review_decisions WHERE panel=? AND event_id=?",
       )
       .get(panel.id, event.event_id);
     const redirect = { ...defaults, ...JSON.parse(panel.rules) }
       .reviewRedirectUrl;
+    if (
+      prior?.import_whitelisted === 1 &&
+      (prior.uid !== event.user_id ||
+        prior.email !== event.email ||
+        !isSubscriptionImportWhitelisted(
+          db,
+          panel.id,
+          event.user_id,
+          event.email,
+          event.import_fingerprint,
+        ))
+    )
+      return { allow: false, codes: ["import-link-invalid"], redirect };
     if (prior)
       return {
         allow: !prior.denied,
@@ -411,7 +436,7 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       result.activeReasons,
     );
     db.prepare(
-      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels,ip_whitelisted) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels,ip_whitelisted,import_whitelisted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
     ).run(
       panel.id,
       event.event_id,
@@ -424,6 +449,7 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       JSON.stringify(result.codes),
       JSON.stringify(reasonLabels),
       Number(!!result.ipWhitelisted),
+      Number(!!result.importWhitelisted),
     );
     return {
       allow: result.codes.length === 0,
