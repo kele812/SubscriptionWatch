@@ -21,6 +21,8 @@ let me,
   refreshController = null;
 let userHistoryState = null;
 let subscriptionOriginOptionsState = { panel: 0, origins: [], revision: null };
+let subscriptionOriginLookupEpoch = 0,
+  subscriptionOriginLookupRequest = 0;
 function requestStatusText(value) {
   const code = Number(value);
   const meanings = {
@@ -844,8 +846,8 @@ $("#actionForm").onsubmit = run(async () => {
   $("#actionDialog").close();
   $("#actionForm").reset();
   toast(
-    result?.sync?.message || "操作完成",
-    result?.sync?.ok === false ? "error" : "success",
+    result?.notice || result?.sync?.message || "操作完成",
+    result?.noticeError || result?.sync?.ok === false ? "error" : "success",
   );
   await refresh();
 });
@@ -982,6 +984,7 @@ $("#addPanel").onclick = () =>
     },
   );
 $("#panelSelect").onchange = run(async () => {
+  clearSubscriptionOriginLookup();
   panelId = Number($("#panelSelect").value);
   resetBatch();
   destinationBefore = null;
@@ -997,6 +1000,7 @@ $("#panelSelect").onchange = run(async () => {
   await refresh();
 });
 function showTab(name) {
+  if (name !== tab) clearSubscriptionOriginLookup();
   tab = name;
   page = 1;
   resetBatch();
@@ -1308,6 +1312,15 @@ async function refresh() {
           format(row.updated),
           format(d.sync.last_contact),
           actions(
+            button("获取订阅地址", () =>
+              getSubscriptionOrigin(String(row.uid), id, { email: row.email }),
+            ),
+            button("复制订阅地址", () =>
+              getSubscriptionOrigin(String(row.uid), id, {
+                email: row.email,
+                copy: true,
+              }),
+            ),
             button(row.origin ? "编辑" : "重新指定", () =>
               editSubscriptionOrigin(row, id),
             ),
@@ -1317,11 +1330,15 @@ async function refresh() {
                 `客户 ${row.uid} / ${row.email}。删除后从此列表移除，同步成功后刷新 Xboard 订阅信息恢复默认地址。客户账号和备选地址不受影响。同步失败时本地旧设置暂时保留。`,
                 [],
                 () =>
-                  api(`/api/panels/${id}/subscription-origins/delete`, {
-                    uid: row.uid,
-                    email: row.email,
-                    revision: row.revision,
-                  }),
+                  mutateSubscriptionOrigin(
+                    id,
+                    {
+                      uid: row.uid,
+                      email: row.email,
+                      revision: row.revision,
+                    },
+                    "delete",
+                  ),
               ),
             ),
           ),
@@ -1928,6 +1945,152 @@ $("#addWhite").onclick = () => {
       }),
   );
 };
+function clearSubscriptionOriginLookup() {
+  subscriptionOriginLookupEpoch++;
+  subscriptionOriginLookupRequest++;
+  $("#subscriptionOriginLookupBox").hidden = true;
+  $("#subscriptionOriginLookup").replaceChildren();
+}
+async function copySubscriptionOrigin(url) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      return true;
+    }
+  } catch {}
+  const previous = document.activeElement;
+  const input = document.createElement("textarea");
+  input.value = url;
+  input.readOnly = true;
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  document.body.append(input);
+  try {
+    input.select();
+    return document.execCommand("copy") === true;
+  } catch {
+    return false;
+  } finally {
+    input.remove();
+    previous?.focus({ preventScroll: true });
+  }
+}
+function renderSubscriptionOriginResult(result, id) {
+  const user = result.user;
+  const address = document.createElement("input");
+  address.type = "text";
+  address.readOnly = true;
+  address.className = "subscription-url-input";
+  address.setAttribute("aria-label", "当前客户订阅地址");
+  address.value = user?.subscribe_url || "";
+  address.onclick = () => address.select();
+  table(
+    "#subscriptionOriginLookup",
+    ["客户 ID / 邮箱", "Xboard 当前订阅地址", "操作"],
+    user
+      ? [
+          [
+            user.id + " / " + user.email,
+            address,
+            actions(
+              button("复制订阅地址", () =>
+                getSubscriptionOrigin(String(user.id), id, {
+                  email: user.email,
+                  copy: true,
+                }),
+              ),
+              button("重新获取", () =>
+                getSubscriptionOrigin(String(user.id), id, {
+                  email: user.email,
+                }),
+              ),
+              button("修改", () =>
+                editSubscriptionOrigin(
+                  {
+                    uid: user.id,
+                    email: user.email,
+                    origin:
+                      result.setting?.origin ||
+                      new URL(user.subscribe_url).origin,
+                    revision: result.setting?.revision || null,
+                  },
+                  id,
+                ),
+              ),
+            ),
+          ],
+        ]
+      : [["未找到此客户", "", ""]],
+  );
+  $("#subscriptionOriginLookupBox").hidden = false;
+}
+async function getSubscriptionOrigin(
+  query,
+  id = panelId,
+  { email = null, copy = false } = {},
+) {
+  if (!id || id !== panelId || tab !== "subscriptionOrigins") return null;
+  const epoch = subscriptionOriginLookupEpoch,
+    requestId = ++subscriptionOriginLookupRequest;
+  const current = () =>
+    epoch === subscriptionOriginLookupEpoch &&
+    requestId === subscriptionOriginLookupRequest &&
+    id === panelId &&
+    tab === "subscriptionOrigins";
+  $("#subscriptionOriginLookupBox").hidden = true;
+  $("#subscriptionOriginLookup").replaceChildren();
+  let result;
+  try {
+    result = await api(`/api/panels/${id}/subscription-origins/lookup`, {
+      query,
+    });
+  } catch (error) {
+    if (!current()) return null;
+    throw error;
+  }
+  if (!current()) return null;
+  if (
+    result.user &&
+    ((/^\d+$/.test(query) && result.user.id !== Number(query)) ||
+      (email !== null && result.user.email !== email))
+  )
+    throw Error("客户资料已变化，请重新搜索核对后获取订阅地址");
+  renderSubscriptionOriginResult(result, id);
+  if (copy) {
+    if (!result.user) throw Error("未找到此客户，未复制订阅地址");
+    const copied = await copySubscriptionOrigin(result.user.subscribe_url);
+    if (!current()) return null;
+    if (!copied) {
+      $("#subscriptionOriginLookup input").select();
+      throw Error("浏览器未允许自动复制，已选中当前订阅地址，请手动复制");
+    }
+    toast("已复制客户当前订阅地址");
+  }
+  return result;
+}
+async function mutateSubscriptionOrigin(id, data, action = "") {
+  clearSubscriptionOriginLookup();
+  const result = await api(
+    `/api/panels/${id}/subscription-origins${action ? "/" + action : ""}`,
+    data,
+  );
+  clearSubscriptionOriginLookup();
+  if (
+    !action &&
+    result.sync?.ok &&
+    id === panelId &&
+    tab === "subscriptionOrigins"
+  ) {
+    try {
+      await getSubscriptionOrigin(String(data.uid), id, { email: data.email });
+    } catch {
+      result.notice =
+        "设置已保存并同步，但获取订阅地址失败，请点击“获取订阅地址”重试";
+      result.noticeError = true;
+    }
+  }
+  return result;
+}
 function editSubscriptionOrigin(row = null, id = panelId) {
   if (!id) return;
   const origins =
@@ -1958,7 +2121,7 @@ function editSubscriptionOrigin(row = null, id = panelId) {
       },
     ],
     (b) =>
-      api(`/api/panels/${id}/subscription-origins`, {
+      mutateSubscriptionOrigin(id, {
         uid: row?.uid ?? Number(b.uid),
         email: b.email.trim(),
         origin:
@@ -2004,9 +2167,11 @@ $("#subscriptionOriginSyncForm").onsubmit = run(async () => {
   if (!id) return;
   const input = $("#subscriptionOriginSyncForm").elements.xboard_url;
   if (input.dataset.panel !== String(id)) throw Error("请等待面板加载完成");
+  clearSubscriptionOriginLookup();
   const result = await api(`/api/panels/${id}/subscription-origins/sync`, {
     xboard_url: input.value.trim(),
   });
+  clearSubscriptionOriginLookup();
   if (input.dataset.panel === String(id)) delete input.dataset.dirty;
   toast(result.sync.message, result.sync.ok ? "success" : "error");
   await refresh();
@@ -2035,45 +2200,19 @@ $("#subscriptionOriginFilters").onsubmit = run(async (e) => {
   page = 1;
   const id = panelId,
     query = $("#subscriptionOriginFilters").elements.q.value.trim();
-  $("#subscriptionOriginLookupBox").hidden = true;
+  clearSubscriptionOriginLookup();
   if (id && /^(?:[1-9][0-9]{0,14}|[^\s@]+@[^\s@]+)$/u.test(query)) {
-    const result = await api(`/api/panels/${id}/subscription-origins/lookup`, {
-      query,
-    });
+    await getSubscriptionOrigin(query, id);
     if (
       id !== panelId ||
       query !== $("#subscriptionOriginFilters").elements.q.value.trim()
     )
       return;
-    table(
-      "#subscriptionOriginLookup",
-      ["客户 ID / 邮箱", "Xboard 当前订阅地址（本次查询）", "操作"],
-      result.user
-        ? [
-            [
-              result.user.id + " / " + result.user.email,
-              result.user.subscribe_url,
-              button("修改", () =>
-                editSubscriptionOrigin(
-                  {
-                    uid: result.user.id,
-                    email: result.user.email,
-                    origin:
-                      result.setting?.origin ||
-                      new URL(result.user.subscribe_url).origin,
-                    revision: result.setting?.revision || null,
-                  },
-                  id,
-                ),
-              ),
-            ],
-          ]
-        : [["未找到此客户", "", ""]],
-    );
-    $("#subscriptionOriginLookupBox").hidden = false;
   }
   await refresh();
 });
+$("#subscriptionOriginFilters").elements.q.oninput =
+  clearSubscriptionOriginLookup;
 $("#clearVisits").onclick = () => {
   if (!panelId) return;
   const url = endpoint("history/clear");

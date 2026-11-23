@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.20" />
+    <link rel="stylesheet" href="/style.css?v=4.0.21" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.20 · 独立采集 · 风险评估</small>
+        <small>v4.0.21 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -190,7 +190,7 @@
             和反向代理。同一面板、同一客户只保留一条设置；搜索后修改与手动新增以最后一次保存为准，搜索本身不会修改地址。
           </p>
           <p>
-            需要 4.0.20 采集插件。配置 Xboard
+            需要 4.0.21 采集插件。配置 Xboard
             地址后，保存修改或删除会立即尝试同步到 Xboard
             本地数据库；确认同步成功后，刷新管理员或客户页面再复制／导入。
             列表和复制操作只读取本地设置，不逐客户远程查询风控。已导入客户端的旧链接需重新导入。
@@ -234,7 +234,7 @@
           </form>
           <p>
             输入完整客户 ID 或邮箱并点击搜索，会查询 Xboard
-            当前生成的订阅地址，可直接修改指定域名。链接包含客户
+            当前生成的完整订阅地址，可直接复制或修改指定域名。已修改用户的操作栏也可获取／复制地址，修改同步成功后自动重新获取。复制时会查询当前地址，不使用旧查询结果。链接包含客户
             Token，请妥善保管；搜索结果不写入风控访问记录。列表筛选及页面自动刷新不会发起此查询。
           </p>
           <div id="subscriptionOriginLookupBox" class="table-wrap" hidden>
@@ -905,6 +905,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.20"></script>
+    <script src="/app.js?v=4.0.21"></script>
   </body>
 </html>

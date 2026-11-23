@@ -1056,3 +1056,8 @@ textarea:user-invalid {
   color: #ff707e;
   border-color: #ff707e;
 }
+.subscription-url-input {
+  width: 100%;
+  min-width: 22rem;
+  font-size: 13px;
+}
