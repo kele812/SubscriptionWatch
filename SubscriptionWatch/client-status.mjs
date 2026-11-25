@@ -1,5 +1,6 @@
 import { defaults, transaction } from "./model.mjs";
 import { requestCounts } from "./review.mjs";
+import { deviceCountsByUsers } from "./devices.mjs";
 
 export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
   const ids = [
@@ -14,6 +15,7 @@ export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
      WHERE s.panel=? AND s.uid IN (${ids.map(() => "?").join(",")})`,
     )
     .all(panel.id, ...ids);
+  const devices = deviceCountsByUsers(db, panel.id, ids, now);
   return new Map(
     subjects.map((s) => {
       const counts = requestCounts(db, panel.id, s.uid, now, s.daily_reset_at);
@@ -24,6 +26,7 @@ export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
           verified: !!s.verified,
           white: !!s.white,
           suspicious: !!s.suspicious,
+          devices: devices.get(s.uid),
           dailyCount: counts.total,
           ipWhitelistCount: counts.ipWhitelist,
           unclassifiedCount: counts.unclassified,

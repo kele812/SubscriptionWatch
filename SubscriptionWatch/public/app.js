@@ -228,6 +228,30 @@ function currentStatusCell(user) {
   }
   return status;
 }
+function currentDeviceText(user) {
+  if (!user?.devices || !user.verified) return "未记录";
+  const { count, pending, enabled } = user.devices;
+  if (!count && !enabled) return "未开启";
+  if (!count && user.white) return "白名单免限（未登记）";
+  return `${count} 台${pending ? `\n含预留 ${pending} 台` : ""}${!enabled ? "\n限制已关闭" : ""}`;
+}
+function currentDeviceCell(row, sourcePanel = panelId) {
+  const cell = document.createElement("span");
+  cell.className = "device-count-cell";
+  const count = document.createElement("span");
+  count.textContent = currentDeviceText(row.currentUser);
+  cell.append(count);
+  if (Number.isSafeInteger(row.uid) && row.uid > 0) {
+    const manage = button("管理设备", () => {
+      if (panelId !== sourcePanel) throw Error("面板已切换，请刷新后重试");
+      $("#deviceFilters").elements.q.value = String(row.uid);
+      showTab("devices");
+    });
+    manage.title = `查看用户 ${row.uid} / ${row.currentUser?.email || row.email} 的设备`;
+    cell.append(manage);
+  }
+  return cell;
+}
 function toast(text, kind = "success") {
   $("#toast").dataset.kind = kind;
   $("#toast").setAttribute("role", kind === "error" ? "alert" : "status");
@@ -503,6 +527,7 @@ function sourceTraceDetail(r) {
     本次IP白名单: r.ip_whitelisted,
     本次专用链接白名单: r.import_whitelisted,
     当前状态: r.currentUser ? currentStatusText(r.currentUser) : null,
+    当前设备数量: currentDeviceText(r.currentUser),
     请求响应: requestStatusText(r.status),
     触发规则: r.review_reasons,
     失败原因: visitFailureReason(r),
@@ -802,6 +827,7 @@ function detail(data) {
       );
     }
     if (data.当前状态) line(card, `当前状态：${data.当前状态}`);
+    if (data.当前设备数量) line(card, `当前设备数量：${data.当前设备数量}`);
     line(card, `订阅内容：${data.订阅内容}`);
     line(card, `UA：${data.原始UA || "（空）"}`);
     const extra = document.createElement("details");
@@ -1437,6 +1463,7 @@ async function refresh() {
           "原始UA",
           "结果",
           "当前状态",
+          "当前设备数量",
           "操作",
         ],
         rows.map((r) => [
@@ -1447,6 +1474,7 @@ async function refresh() {
           r.ua || "（空）",
           visitResultCell(r),
           currentStatusCell(r.currentUser),
+          currentDeviceCell(r),
           actions(
             button("查看", () => detail(sourceTraceDetail(r))),
             ...(r.currentUser?.verified

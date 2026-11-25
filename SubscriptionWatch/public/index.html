@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.24" />
+    <link rel="stylesheet" href="/style.css?v=4.0.25" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.24 · 独立采集 · 风险评估</small>
+        <small>v4.0.25 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -120,7 +120,7 @@
         </section>
         <section id="history" data-view>
           <p>
-            “结果”是这次请求的结果，拦截行会列出命中规则，失败行会显示已知原因；若只有响应状态，则不猜测具体错误。“当前状态”是现在的可疑标记与滚动24小时订阅次数。同一用户的历史行会显示相同的当前状态。重置次数不会删除历史、取消可疑标记或解除
+            “结果”是这次请求的结果，拦截行会列出命中规则，失败行会显示已知原因；若只有响应状态，则不猜测具体错误。“当前状态”和“当前设备数量”显示该用户现在的状态。同一用户的历史行显示相同的最新数量，按设备管理的有效占用去重，含未过期预留并单独注明，不代表在线设备。设备限制未开启且没有登记记录时显示“未开启”。重置次数不会删除历史、取消可疑标记或解除
             Xboard 账号封禁。
           </p>
           <form id="filters" class="filters">
@@ -984,6 +984,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.24"></script>
+    <script src="/app.js?v=4.0.25"></script>
   </body>
 </html>

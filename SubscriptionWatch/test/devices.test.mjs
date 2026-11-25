@@ -12,6 +12,7 @@ import {
   finishDeviceRequest,
   clearDevices,
   deviceRows,
+  deviceCountsByUsers,
   RESERVATION_MS,
 } from "../devices.mjs";
 import { createApp } from "../server.mjs";
@@ -224,6 +225,50 @@ test("清除用户/全体设备连同预留清除，迟到成功与错误响应�
   }
 });
 
+test("记录页设备数按当前邮箱批量去重，排除过期/其他用户与面板，预留单独计数", () => {
+  const { db, now } = fixture();
+  try {
+    db.exec(
+      "INSERT INTO subjects(panel,uid,email) VALUES(1,7,'a@example.com'),(1,8,'person7@example.com'),(2,7,'a@example.com')",
+    );
+    const lease = db.prepare(
+      "INSERT INTO device_leases(panel,uid,email,hwid,last_success) VALUES(?,?,?,?,?)",
+    );
+    lease.run(1, 7, "a@example.com", "active", now - HOUR);
+    lease.run(1, 7, "a@example.com", "expired", now - 24 * HOUR);
+    lease.run(1, 7, "old@example.com", "old-email", now);
+    lease.run(1, 8, "person7@example.com", "other-user", now);
+    lease.run(2, 7, "a@example.com", "other-panel", now);
+    const reserve = db.prepare(
+      "INSERT INTO device_reservations(panel,event_id,uid,email,hwid,expires) VALUES(?,?,?,?,?,?)",
+    );
+    reserve.run(1, "same-active", 7, "a@example.com", "active", now + 1000);
+    reserve.run(1, "pending-one", 7, "a@example.com", "pending", now + 1000);
+    reserve.run(1, "pending-repeat", 7, "a@example.com", "pending", now + 1000);
+    reserve.run(1, "expired", 7, "a@example.com", "expired-reservation", now);
+    const result = deviceCountsByUsers(db, 1, [7, 7, 8, 9, NaN], now);
+    assert.equal(result.size, 3);
+    assert.deepEqual(result.get(7), {
+      count: 2,
+      pending: 1,
+      enabled: true,
+      hours: 24,
+    });
+    assert.equal(result.get(8).count, 1);
+    assert.equal(result.get(9).count, 0);
+    assert.ok(
+      deviceRows(db, 1, "7", 1, now).rows.every((row) => row.uid === 7),
+      "ID navigation never includes another account whose email contains the ID",
+    );
+    assert.equal(deviceCountsByUsers(db, 1, [], now).size, 0);
+    clearDevices(db, 1, 7);
+    assert.equal(deviceCountsByUsers(db, 1, [7, 8], now).get(7).count, 0);
+    assert.equal(deviceCountsByUsers(db, 1, [7, 8], now).get(8).count, 1);
+  } finally {
+    db.close();
+  }
+});
+
 test("真实签名审核与上报：设备额度、白名单、并发、清除与面板权限", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "watch-devices-"));
   const app = createApp({
@@ -268,6 +313,14 @@ test("真实签名审核与上报：设备额度、白名单、并发、清除�
     app.db
       .prepare("UPDATE panels SET rules=? WHERE id=?")
       .run(JSON.stringify(rules), id);
+    const history = async () =>
+      (
+        await (
+          await fetch(base + `/api/panels/${id}/events`, {
+            headers: { Cookie: cookie },
+          })
+        ).json()
+      ).rows;
     assert.equal(
       (
         await post(
@@ -396,6 +449,16 @@ test("真实签名审核与上报：设备额度、白名单、并发、清除�
     assert.ok(
       JSON.parse(record.review_reasons).some((r) => r.includes("非指定客户端")),
     );
+    const beforeClear = await history();
+    assert.equal(beforeClear.length, 2);
+    assert.ok(
+      beforeClear.every(
+        (row) =>
+          row.currentUser.devices.count === 1 &&
+          row.currentUser.devices.pending === 0,
+      ),
+      "all historical requests show the current device count",
+    );
     app.db
       .prepare("UPDATE panels SET rules=? WHERE id=?")
       .run(JSON.stringify(rules), id);
@@ -412,6 +475,10 @@ test("真实签名审核与上报：设备额度、白名单、并发、清除�
         )
       ).status,
       200,
+    );
+    assert.ok(
+      (await history()).every((row) => row.currentUser.devices.count === 0),
+      "clearing changes current counts on old records without rewriting visits",
     );
     assert.equal(
       (await signed("/api/collector/review", make("c"))).allow,

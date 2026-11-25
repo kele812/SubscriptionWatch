@@ -34,6 +34,38 @@ export function deviceSettings(db, panel) {
   return { enabled: !!row?.enabled, hours: row?.hours ?? 24 };
 }
 
+// One local query for all users on the history page; count the same active
+// identities as deviceRows, bound to each subject's current email.
+export function deviceCountsByUsers(db, panel, uids, now = Date.now()) {
+  const ids = [
+    ...new Set(uids.filter((id) => Number.isSafeInteger(id) && id > 0)),
+  ];
+  if (!ids.length) return new Map();
+  const settings = deviceSettings(db, panel);
+  const marks = ids.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `WITH active AS (
+    SELECT uid,email,hwid,0 pending FROM device_leases WHERE panel=? AND uid IN (${marks}) AND last_success>?
+    UNION ALL SELECT uid,email,hwid,1 pending FROM device_reservations WHERE panel=? AND uid IN (${marks}) AND expires>?
+  ), grouped AS (SELECT uid,email,hwid,MIN(pending) pending FROM active GROUP BY uid,email,hwid)
+  SELECT g.uid,COUNT(*) count,SUM(g.pending) pending FROM grouped g
+  JOIN subjects s ON s.panel=? AND s.uid=g.uid AND s.email=g.email GROUP BY g.uid`,
+    )
+    .all(panel, ...ids, now - settings.hours * HOUR, panel, ...ids, now, panel);
+  const counts = new Map(rows.map((row) => [row.uid, row]));
+  return new Map(
+    ids.map((uid) => [
+      uid,
+      {
+        count: counts.get(uid)?.count ?? 0,
+        pending: counts.get(uid)?.pending ?? 0,
+        ...settings,
+      },
+    ]),
+  );
+}
+
 export function saveDeviceSettings(db, panel, value) {
   if (
     typeof value.enabled !== "boolean" ||
@@ -192,8 +224,9 @@ export function deviceRows(db, panel, query = "", page = 1, now = Date.now()) {
     UNION ALL SELECT uid,email,hwid,platform,identity_kind,NULL last_success,expires,device_limit,1 pending FROM device_reservations WHERE panel=? AND expires>?
   ), grouped AS (SELECT uid,email,hwid,MAX(platform) platform,MAX(identity_kind) identity_kind,MAX(last_success) last_success,MAX(expires) expires,MAX(device_limit) device_limit,MIN(pending) pending FROM active GROUP BY uid,email,hwid)
   `;
-  const where = filter ? " WHERE CAST(uid AS TEXT)=? OR email LIKE ?" : "";
-  if (filter) args.push(filter, `%${filter}%`);
+  const byId = /^\d+$/.test(filter);
+  const where = filter ? (byId ? " WHERE uid=?" : " WHERE email LIKE ?") : "";
+  if (filter) args.push(byId ? filter : `%${filter}%`);
   return {
     settings,
     total: db

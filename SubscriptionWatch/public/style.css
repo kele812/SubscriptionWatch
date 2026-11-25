@@ -522,6 +522,17 @@ td:nth-child(4) {
   color: var(--muted);
   line-height: 1.5;
 }
+#historyTable th:nth-child(8),
+#historyTable td:nth-child(8) {
+  min-width: 112px;
+}
+.device-count-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  white-space: pre-line;
+}
 .settings-form,
 .settings-block {
   max-width: 980px;

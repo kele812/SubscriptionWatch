@@ -182,7 +182,7 @@ class Collector
                 $locked = false; $members = [];
             }
                 $events = array_merge([$event], array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members));
-                $data = ['schema' => 1, 'version' => '4.0.24', 'mode' => 'request', 'events' => $events];
+                $data = ['schema' => 1, 'version' => '4.0.25', 'mode' => 'request', 'events' => $events];
                 if ($locked) { try { $data['metrics'] = $buffer->metrics(); } catch (\Throwable $ignored) {} }
                 $payload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
