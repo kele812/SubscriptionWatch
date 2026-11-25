@@ -193,6 +193,58 @@ test("白名单免限且无需HWID；未升级插件拒绝；不同用户及面�
   }
 });
 
+test("白名单只统计不限制，关闭限制仍登记；缺少编号放行，失败和清除不恢复设备", () => {
+  const { db, now, event, finish } = fixture();
+  try {
+    db.prepare("INSERT INTO subjects VALUES(1,7,?,1)").run("a@example.com");
+    for (const id of ["a", "b", "c"]) {
+      const e = event(id, { device_limit: 1 });
+      assert.deepEqual(reserveDevice(db, 1, e, now), {});
+      finish(e);
+    }
+    assert.equal(
+      deviceCountsByUsers(db, 1, [7], now + 20).get(7).count,
+      3,
+      "white user can exceed the plan without rejection",
+    );
+    saveDeviceSettings(db, 1, { enabled: false, hours: 24 });
+    const same = event("a", { ua: "Different client", device_limit: 1 });
+    reserveDevice(db, 1, same, now + 20);
+    finish(same, true, now + 30);
+    assert.equal(deviceCountsByUsers(db, 1, [7], now + 40).get(7).count, 3);
+    const missing = event("d", { hwid: undefined, device_limit: undefined });
+    assert.deepEqual(reserveDevice(db, 1, missing, now + 40), {});
+    assert.equal(
+      db
+        .prepare("SELECT COUNT(*) n FROM device_reservations WHERE event_id=?")
+        .get(missing.event_id).n,
+      0,
+    );
+    const noLimit = event("d", { device_limit: undefined });
+    assert.deepEqual(reserveDevice(db, 1, noLimit, now + 40), {});
+    finish(noLimit, true, now + 50);
+    assert.equal(deviceCountsByUsers(db, 1, [7], now + 60).get(7).count, 4);
+    const failed = event("e", { device_limit: 1 });
+    reserveDevice(db, 1, failed, now + 60);
+    finish(failed, false, now + 70);
+    assert.equal(deviceCountsByUsers(db, 1, [7], now + 80).get(7).count, 4);
+    const late = event("f");
+    reserveDevice(db, 1, late, now + 80);
+    clearDevices(db, 1, 7);
+    finish(late, true, now + 90);
+    assert.equal(deviceCountsByUsers(db, 1, [7], now + 100).get(7).count, 0);
+    const fresh = event("g");
+    reserveDevice(db, 1, fresh, now + 100);
+    finish(fresh, true, now + 110);
+    assert.equal(
+      deviceCountsByUsers(db, 1, [7], now + 110 + 24 * HOUR).get(7).count,
+      0,
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("清除用户/全体设备连同预留清除，迟到成功与错误响应不能恢复名额", () => {
   const { db, now, event, finish } = fixture();
   try {
@@ -487,6 +539,33 @@ test("真实签名审核与上报：设备额度、白名单、并发、清除�
     app.db
       .prepare("UPDATE subjects SET white=1 WHERE panel=? AND uid=7")
       .run(id);
+    await post(
+      `/api/panels/${id}/devices/settings`,
+      { enabled: false, hours: 24 },
+      cookie,
+    );
+    clearDevices(app.db, id, 7);
+    const whiteDevice = make("e", { device_limit: 1 });
+    assert.equal(
+      (await signed("/api/collector/review", whiteDevice)).allow,
+      true,
+    );
+    await signed("/api/collector/events", {
+      schema: 1,
+      version: "4.0.25",
+      mode: "request",
+      events: [{ ...report, ...whiteDevice, completed_at: Date.now() }],
+    });
+    const whiteHistory = await history();
+    assert.ok(
+      whiteHistory.every(
+        (row) =>
+          row.currentUser.white &&
+          row.currentUser.devices.count === 1 &&
+          row.currentUser.devices.enabled === false,
+      ),
+      "whitelist requests update current counts even when enforcement is off",
+    );
     assert.equal(
       (
         await signed(

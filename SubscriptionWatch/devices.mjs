@@ -89,15 +89,18 @@ export function saveDeviceSettings(db, panel, value) {
 // cannot both claim the final place. Existing devices always share one place.
 export function reserveDevice(db, panel, event, now, claim = true) {
   const settings = deviceSettings(db, panel);
-  if (!settings.enabled) return {};
   const white = db
     .prepare("SELECT white FROM subjects WHERE panel=? AND uid=? AND email=?")
     .get(panel, event.user_id, event.email);
-  if (white?.white) return {};
-  if (!Number.isSafeInteger(event.device_limit) || event.device_limit < 0)
-    return { code: "device-metadata" };
+  const exempt = !!white?.white;
+  if (!settings.enabled && !exempt) return {};
+  const validLimit =
+    Number.isSafeInteger(event.device_limit) && event.device_limit >= 0;
+  if (!validLimit && !exempt) return { code: "device-metadata" };
   if (!event.hwid)
-    return { code: "device-id-required", limit: event.device_limit };
+    return exempt
+      ? {}
+      : { code: "device-id-required", limit: event.device_limit };
   const cutoff = now - settings.hours * HOUR;
   db.prepare("DELETE FROM device_leases WHERE panel=? AND last_success<=?").run(
     panel,
@@ -106,31 +109,33 @@ export function reserveDevice(db, panel, event, now, claim = true) {
   db.prepare(
     "DELETE FROM device_reservations WHERE panel=? AND expires<=?",
   ).run(panel, now);
-  const active = db
-    .prepare(
-      `SELECT hwid FROM device_leases WHERE panel=? AND uid=? AND email=? AND last_success>?
+  if (!exempt) {
+    const active = db
+      .prepare(
+        `SELECT hwid FROM device_leases WHERE panel=? AND uid=? AND email=? AND last_success>?
     UNION SELECT hwid FROM device_reservations WHERE panel=? AND uid=? AND email=? AND expires>?`,
+      )
+      .all(
+        panel,
+        event.user_id,
+        event.email,
+        cutoff,
+        panel,
+        event.user_id,
+        event.email,
+        now,
+      );
+    if (
+      event.device_limit > 0 &&
+      !active.some((r) => r.hwid === event.hwid) &&
+      active.length >= event.device_limit
     )
-    .all(
-      panel,
-      event.user_id,
-      event.email,
-      cutoff,
-      panel,
-      event.user_id,
-      event.email,
-      now,
-    );
-  if (
-    event.device_limit > 0 &&
-    !active.some((r) => r.hwid === event.hwid) &&
-    active.length >= event.device_limit
-  )
-    return {
-      code: "device-limit",
-      limit: event.device_limit,
-      count: active.length,
-    };
+      return {
+        code: "device-limit",
+        limit: event.device_limit,
+        count: active.length,
+      };
+  }
   if (!claim) return {};
   db.prepare(
     `INSERT INTO device_reservations(panel,event_id,uid,email,hwid,platform,identity_kind,created,expires,device_limit)
@@ -145,7 +150,7 @@ export function reserveDevice(db, panel, event, now, claim = true) {
     event.identity_kind || "hwid",
     now,
     now + RESERVATION_MS,
-    event.device_limit,
+    validLimit ? event.device_limit : null,
   );
   return {};
 }
@@ -168,8 +173,13 @@ export function finishDeviceRequest(db, panel, event, reviewed, now) {
     "DELETE FROM device_reservations WHERE panel=? AND event_id=?",
   ).run(panel, event.event_id);
   const completed = event.completed_at ?? event.ts;
+  const statsAllowed =
+    deviceSettings(db, panel).enabled ||
+    !!db
+      .prepare("SELECT white FROM subjects WHERE panel=? AND uid=? AND email=?")
+      .get(panel, event.user_id, event.email)?.white;
   if (
-    !deviceSettings(db, panel).enabled ||
+    !statsAllowed ||
     pending.expires <= now ||
     event.delivered !== true ||
     event.status < 200 ||

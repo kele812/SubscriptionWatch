@@ -231,9 +231,11 @@ function currentStatusCell(user) {
 function currentDeviceText(user) {
   if (!user?.devices || !user.verified) return "未记录";
   const { count, pending, enabled } = user.devices;
+  const number = `${count} 台${pending ? `\n含预留 ${pending} 台` : ""}`;
+  if (user.white)
+    return `${number}\n白名单免限${count ? "" : "（暂无已识别设备）"}`;
   if (!count && !enabled) return "未开启";
-  if (!count && user.white) return "白名单免限（未登记）";
-  return `${count} 台${pending ? `\n含预留 ${pending} 台` : ""}${!enabled ? "\n限制已关闭" : ""}`;
+  return `${number}${!enabled ? "\n限制已关闭" : ""}`;
 }
 function currentDeviceCell(row, sourcePanel = panelId) {
   const cell = document.createElement("span");
@@ -1150,7 +1152,7 @@ async function refresh() {
           `${r.uid} / ${r.email}`,
           `${r.identity_kind === "ua" ? "原始 UA" : "设备编号"} / ${r.platform}`,
           r.hwid.slice(0, 16),
-          r.device_limit || "不限",
+          r.device_limit === null ? "未记录" : r.device_limit || "不限",
           r.pending ? "等待下发结果" : format(r.last_success),
           format(r.expires),
           button("清除此用户设备", () =>

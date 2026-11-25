@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.25" />
+    <link rel="stylesheet" href="/style.css?v=4.0.26" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.25 · 独立采集 · 风险评估</small>
+        <small>v4.0.26 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -83,7 +83,7 @@
               /></label>
               <p>
                 数量上限使用 Xboard 当前用户的设备限制，0
-                或未限制表示不限数量。用户白名单免于此项检查。Pa55Wall
+                或未限制表示不限数量。用户白名单只统计可识别的设备、不执行设备限制；缺少编号仍放行。关闭设备限制后也继续显示白名单的设备统计。Pa55Wall
                 通过设备编号识别；iPhone/iPad 的 Shadowrocket 按完整原始 UA
                 识别，同 UA 会合并，升级改变 UA 可能新增名额。
               </p>
@@ -120,7 +120,7 @@
         </section>
         <section id="history" data-view>
           <p>
-            “结果”是这次请求的结果，拦截行会列出命中规则，失败行会显示已知原因；若只有响应状态，则不猜测具体错误。“当前状态”和“当前设备数量”显示该用户现在的状态。同一用户的历史行显示相同的最新数量，按设备管理的有效占用去重，含未过期预留并单独注明，不代表在线设备。设备限制未开启且没有登记记录时显示“未开启”。重置次数不会删除历史、取消可疑标记或解除
+            “结果”是这次请求的结果，拦截行会列出命中规则，失败行会显示已知原因；若只有响应状态，则不猜测具体错误。“当前状态”和“当前设备数量”显示该用户现在的状态。同一用户的历史行显示相同的最新数量，按设备管理的有效占用去重，含未过期预留并单独注明，不代表在线设备。非白名单用户设备限制未开启且没有登记记录时显示“未开启”；白名单仅统计、不限制数量。重置次数不会删除历史、取消可疑标记或解除
             Xboard 账号封禁。
           </p>
           <form id="filters" class="filters">
@@ -341,7 +341,9 @@
           <div id="riskHistoryTable"></div>
         </section>
         <section id="whitelist" data-view hidden>
-          <p>白名单用户继续保留获取订阅记录，但免于所有风险规则。</p>
+          <p>
+            白名单用户继续保留获取订阅记录，并统计可识别设备数量，但免于所有风险规则和设备数量限制。
+          </p>
           <form id="subjectSearch" class="filters">
             <label>用户ID或邮箱<input name="q" /></label><button>搜索</button
             ><button type="button" id="addWhite">按ID添加白名单</button>
@@ -984,6 +986,6 @@
       </form>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.25"></script>
+    <script src="/app.js?v=4.0.26"></script>
   </body>
 </html>
