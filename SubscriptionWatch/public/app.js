@@ -20,6 +20,7 @@ let me,
   toastTimer,
   refreshController = null;
 let userHistoryState = null;
+let deviceSettingsPanel = 0;
 let subscriptionOriginOptionsState = { panel: 0, origins: [], revision: null };
 let subscriptionOriginLookupEpoch = 0,
   subscriptionOriginLookupRequest = 0;
@@ -89,7 +90,8 @@ function requestStatusText(value) {
   );
 }
 function visitStatusText(row) {
-  if (row.review_blocked === 1) return "规则拦截跳转";
+  if (row.review_blocked === 1)
+    return row.status === 302 ? "规则拦截跳转" : "规则拒绝";
   if (row.delivered === 1 && row.status >= 200 && row.status < 300)
     return "订阅成功";
   if (row.delivered === 0 || row.status >= 400) return "请求失败";
@@ -134,7 +136,7 @@ function visitFailureReason(row) {
 }
 function visitOutcomeReasons(row) {
   const result = visitStatusText(row);
-  if (result === "规则拦截跳转") {
+  if (result === "规则拦截跳转" || result === "规则拒绝") {
     const reasons = reviewReasonLabels(row.review_reasons);
     return reasons.length
       ? reasons.map((reason) => `拦截原因：${reason}`)
@@ -508,7 +510,9 @@ function sourceTraceDetail(r) {
       r.delivered === 1
         ? "已返回订阅内容"
         : r.review_blocked === 1
-          ? "未返回订阅内容（规则拦截后跳转）"
+          ? r.status === 302
+            ? "未返回订阅内容（规则拦截后跳转）"
+            : "未返回订阅内容（规则拒绝）"
           : r.delivered === 0
             ? "未返回订阅内容"
             : "旧记录无法确认是否返回",
@@ -773,7 +777,7 @@ function detail(data) {
           : "本次命中 IP／域名白名单",
         "visit-whitelist-detail",
       );
-    if (data.结果 === "规则拦截跳转") {
+    if (data.结果 === "规则拦截跳转" || data.结果 === "规则拒绝") {
       const reasons = reviewReasonLabels(data.触发规则);
       line(
         card,
@@ -1073,6 +1077,7 @@ async function refresh() {
             "subscriptionOrigins",
             "panelSettings",
             "riskRules",
+            "devices",
             "telegram",
           ].includes(tab));
     const pageable = [
@@ -1084,6 +1089,50 @@ async function refresh() {
     ].includes(tab);
     $("#pagination").hidden = !pageable || !panelId;
     let rows = [];
+    if (tab === "devices" && panelId) {
+      const data = await read(
+        endpoint("devices") +
+          "?" +
+          new URLSearchParams({
+            q: $("#deviceFilters").elements.q.value,
+            page,
+          }),
+      );
+      const f = $("#deviceSettingsForm");
+      if (deviceSettingsPanel !== panelId) {
+        f.elements.enabled.checked = data.settings.enabled;
+        f.elements.hours.value = data.settings.hours;
+        deviceSettingsPanel = panelId;
+      }
+      $("#deviceSummary").textContent =
+        `共 ${data.total} 个占用名额 · 第 ${page} 页 · ${data.settings.enabled ? "限制已启用" : "限制未启用"}`;
+      $("#devicePrevious").disabled = page <= 1;
+      $("#deviceNext").disabled = page * 50 >= data.total;
+      const sourcePanel = panelId;
+      table(
+        "#deviceRows",
+        [
+          "用户",
+          "识别方式 / 系统",
+          "标识指纹",
+          "上限快照",
+          "最近成功下发",
+          "预计释放",
+          "操作",
+        ],
+        data.rows.map((r) => [
+          `${r.uid} / ${r.email}`,
+          `${r.identity_kind === "ua" ? "原始 UA" : "设备编号"} / ${r.platform}`,
+          r.hwid.slice(0, 16),
+          r.device_limit || "不限",
+          r.pending ? "等待下发结果" : format(r.last_success),
+          format(r.expires),
+          button("清除此用户设备", () =>
+            confirmDeviceClear(sourcePanel, r.uid),
+          ),
+        ]),
+      );
+    }
     if (tab === "sourceIp") {
       if (sourceIpQuery) {
         const d = await read(
@@ -2525,4 +2574,66 @@ $("#exportBlacklist").onclick = run(async () => {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
   toast("黑名单已导出，每行一个 IP");
+});
+
+function confirmDeviceClear(id, uid) {
+  if (!id || panelId !== id) throw Error("面板已切换，请刷新后重试");
+  ask(
+    uid ? "清除该用户设备" : "清除当前面板全部设备",
+    uid
+      ? "释放用户 " + uid + " 的全部设备名额。下次获取订阅将重新登记。"
+      : "释放此面板所有用户的设备名额，不修改其他面板。",
+    [],
+    async () => {
+      if (panelId !== id) throw Error("面板已切换，请重新操作");
+      await api("/api/panels/" + id + "/devices/clear", {
+        confirm: true,
+        ...(uid ? { uid } : {}),
+      });
+      toast("设备名额已清除");
+      await refresh();
+    },
+  );
+}
+$("#deviceSettingsForm").onsubmit = run(async () => {
+  const id = panelId,
+    f = $("#deviceSettingsForm");
+  await api("/api/panels/" + id + "/devices/settings", {
+    enabled: f.elements.enabled.checked,
+    hours: Number(f.elements.hours.value),
+  });
+  if (id !== panelId) return;
+  deviceSettingsPanel = 0;
+  toast("设备设置已保存");
+  await refresh();
+});
+$("#deviceFilters").onsubmit = run(async () => {
+  page = 1;
+  await refresh();
+});
+$("#devicePrevious").onclick = run(async () => {
+  if (page > 1) page--;
+  await refresh();
+});
+$("#deviceNext").onclick = run(async () => {
+  page++;
+  await refresh();
+});
+$("#clearPanelDevices").onclick = run(async () => confirmDeviceClear(panelId));
+$("#clearUserDevices").onclick = run(async () => {
+  const id = panelId;
+  ask(
+    "清除指定用户设备",
+    "输入此面板的用户ID，释放该用户的全部设备名额。",
+    [{ name: "uid", label: "用户ID", type: "number" }],
+    async (value) => {
+      if (panelId !== id) throw Error("面板已切换，请重新操作");
+      const uid = Number(value.uid);
+      if (!Number.isSafeInteger(uid) || uid < 1)
+        throw Error("请输入有效的用户ID");
+      await api("/api/panels/" + id + "/devices/clear", { confirm: true, uid });
+      toast("设备名额已清除");
+      await refresh();
+    },
+  );
 });

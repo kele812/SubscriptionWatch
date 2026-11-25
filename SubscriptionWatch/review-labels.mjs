@@ -1,4 +1,7 @@
 const labels = {
+  "device-limit": "设备数量已达 Xboard 套餐上限",
+  "device-id-required": "未发送 X-HWID 设备标识",
+  "device-metadata": "采集插件未提供有效设备上限，请升级插件",
   "import-link-invalid": "专用订阅链接白名单凭证已失效",
   "daily-limit": "超过每人 24 小时订阅请求上限",
   ua: "非指定客户端获取订阅",

@@ -37,6 +37,13 @@ test("详情不重复展示；IP规则只标红参与IP，UA规则只标红异�
   });
   vm.runInContext(
     code.slice(
+      code.indexOf("function requestStatusText(value)"),
+      code.indexOf("function currentStatusLabels(user)"),
+    ),
+    context,
+  );
+  vm.runInContext(
+    code.slice(
       code.indexOf("function evidenceHint(code)"),
       code.indexOf("function grade(level)"),
     ),
@@ -124,7 +131,13 @@ test("详情不重复展示；IP规则只标红参与IP，UA规则只标红异�
     时间: "2026/9/17 12:00",
     来源IP: "192.0.2.1",
     归属地: {},
-    状态: "临时跳转",
+    结果: "规则拦截跳转",
+    当前状态: "正常 · 24小时已计入 1/30 次，下次第 2 次",
+    触发规则: JSON.stringify([
+      "来源 IP 不在中国大陆或白名单",
+      "非指定客户端获取订阅",
+    ]),
+    订阅内容: "未返回订阅内容（规则拦截后跳转）",
     原始UA: "NetFlow/windows",
     直接连接IP: "127.0.0.1",
     IP取值依据: "trusted_proxy",
@@ -133,6 +146,85 @@ test("详情不重复展示；IP规则只标红参与IP，UA规则只标红异�
   vm.runInContext("detail(input)", context);
   elements = flatten(nodes["#detailEvidence"]);
   assert.equal(nodes["#detailText"].hidden, true);
-  assert.ok(elements.some((e) => e.textContent === "状态：临时跳转"));
+  assert.ok(elements.some((e) => e.textContent === "结果：规则拦截跳转"));
+  assert.ok(elements.some((e) => e.textContent === "拦截原因（2 条）："));
+  assert.deepEqual(
+    elements
+      .find((e) => e.className === "visit-block-reasons")
+      .children.map((e) => e.textContent),
+    ["来源 IP 不在中国大陆或白名单", "非指定客户端获取订阅"],
+  );
+  assert.ok(
+    elements.some(
+      (e) =>
+        e.textContent === "当前状态：正常 · 24小时已计入 1/30 次，下次第 2 次",
+    ),
+  );
+  assert.ok(
+    elements.some(
+      (e) => e.textContent === "订阅内容：未返回订阅内容（规则拦截后跳转）",
+    ),
+  );
+  assert.ok(elements.some((e) => e.textContent.startsWith("通过哪里反代：")));
   assert.ok(elements.some((e) => e.textContent === "连接详情"));
+  const visitCard = elements.find((e) => e.className === "evidence-card");
+  assert.deepEqual(
+    visitCard.children.slice(0, 9).map((e) => e.textContent.split("：")[0]),
+    [
+      "时间",
+      "IP 及归属地",
+      "通过哪里反代",
+      "结果",
+      "拦截原因（2 条）",
+      "",
+      "当前状态",
+      "订阅内容",
+      "UA",
+    ],
+  );
+  assert.deepEqual(
+    visitCard.children[9].children.map((e) => e.textContent.split("：")[0]),
+    ["连接详情", "耗时", "请求编号", "订阅指纹", "内容类型"],
+  );
+
+  context.visit = {
+    review_blocked: 1,
+    review_reasons: JSON.stringify([
+      "来源 IP 不在中国大陆或白名单",
+      "非指定客户端获取订阅",
+    ]),
+    status: 302,
+    delivered: 0,
+  };
+  context.input.结果 = "规则拒绝";
+  context.input.订阅内容 = "未返回订阅内容（规则拒绝）";
+  vm.runInContext("detail(input)", context);
+  elements = flatten(nodes["#detailEvidence"]);
+  assert.ok(elements.some((e) => e.textContent === "拦截原因（2 条）："));
+  assert.ok(elements.some((e) => e.className === "visit-block-reasons"));
+  assert.ok(
+    !elements.some((e) => e.textContent.includes("服务器未上报更具体的原因")),
+  );
+  let resultCell = vm.runInContext("visitResultCell(visit)", context);
+  assert.deepEqual(
+    resultCell.children.slice(1).map((e) => e.textContent),
+    [
+      "拦截原因：来源 IP 不在中国大陆或白名单",
+      "拦截原因：非指定客户端获取订阅",
+    ],
+  );
+  context.visit = {
+    status: 403,
+    delivered: 0,
+    failure_code: "review-unavailable",
+  };
+  resultCell = vm.runInContext("visitResultCell(visit)", context);
+  assert.match(resultCell.children[1].textContent, /风控后台连接失败/);
+  context.visit = {
+    status: 200,
+    delivered: 0,
+    content_type: "text/html; charset=utf-8",
+  };
+  resultCell = vm.runInContext("visitResultCell(visit)", context);
+  assert.match(resultCell.children[1].textContent, /返回的是网页/);
 });

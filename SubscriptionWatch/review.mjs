@@ -4,6 +4,7 @@ import { defaults, transaction } from "./model.mjs";
 import { describeReviewCodes } from "./review-labels.mjs";
 import { isWhitelisted } from "./whitelist.mjs";
 import { isSubscriptionImportWhitelisted } from "./subscription-imports.mjs";
+import { reserveDevice } from "./devices.mjs";
 import {
   activeBlacklistedIP,
   blacklistSettings,
@@ -100,7 +101,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.23",
+    ruleVersion: "4.0.24",
   };
 }
 
@@ -397,7 +398,17 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
     !isIP(event.ip) ||
     (event.import_fingerprint !== undefined &&
       (typeof event.import_fingerprint !== "string" ||
-        !/^[a-f0-9]{64}$/.test(event.import_fingerprint)))
+        !/^[a-f0-9]{64}$/.test(event.import_fingerprint))) ||
+    (event.hwid !== undefined &&
+      (typeof event.hwid !== "string" || !/^[a-f0-9]{64}$/.test(event.hwid))) ||
+    (event.device_limit !== undefined &&
+      (!Number.isSafeInteger(event.device_limit) || event.device_limit < 0)) ||
+    (event.platform !== undefined &&
+      !["Android", "Windows", "iOS", "macOS", "未知"].includes(
+        event.platform,
+      )) ||
+    (event.identity_kind !== undefined &&
+      !["hwid", "ua"].includes(event.identity_kind))
   )
     return reply(res, 422, { error: "invalid event" });
   const decision = transaction(db, () => {
@@ -431,9 +442,21 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       "INSERT INTO subjects(panel,uid,email,verified) VALUES(?,?,?,1) ON CONFLICT(panel,uid) DO UPDATE SET white=CASE WHEN subjects.email=excluded.email THEN subjects.white ELSE 0 END,email=excluded.email,verified=1",
     ).run(panel.id, event.user_id, event.email);
     const result = decide(db, panel, event, geo, now);
+    const device = reserveDevice(
+      db,
+      panel.id,
+      event,
+      now,
+      result.codes.length === 0,
+    );
+    if (device.code) result.codes.push(device.code);
     const reasonLabels = describeReviewCodes(
       result.codes,
       result.activeReasons,
+    ).map((label) =>
+      device.code === "device-limit" && label === "设备数量已达 Xboard 套餐上限"
+        ? `${label}（已占用 ${device.count} / 上限 ${device.limit}）`
+        : label,
     );
     db.prepare(
       "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels,ip_whitelisted,import_whitelisted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -455,7 +478,13 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       allow: result.codes.length === 0,
       codes: result.codes,
       redirect: result.codes.length ? result.redirect : null,
+      ...(device.code ? { device } : {}),
     };
   });
-  return reply(res, 200, { ...decision, event_id: event.event_id }, secret);
+  return reply(
+    res,
+    200,
+    { ...decision, event_id: event.event_id, device_policy_version: 1 },
+    secret,
+  );
 }

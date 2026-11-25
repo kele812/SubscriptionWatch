@@ -51,6 +51,19 @@ class Plugin extends AbstractPlugin
                 $decision = ['allow' => false, 'redirect' => null];
             }
             if (!$decision['allow']) {
+                if (isset($decision['device_error'])) {
+                    $code = $decision['device_error'];
+                    $messages = [
+                        'device-limit' => '设备数量已达套餐上限，请等待旧设备名额到期或联系管理员清除设备',
+                        'device-id-required' => '请使用发送 X-HWID 设备标识的客户端',
+                        'device-metadata' => '无法读取设备上限，请联系管理员检查采集插件',
+                    ];
+                    $this->intercept(response(json_encode(['message' => $messages[$code]], JSON_UNESCAPED_UNICODE), 403, [
+                        'Content-Type' => 'application/json; charset=utf-8', 'Cache-Control' => 'no-store',
+                        'X-Pa55wall-Error' => $code,
+                    ]));
+                    return;
+                }
                 if ($decision['redirect'])
                     $this->intercept(response('', 302, [
                         'Location' => $decision['redirect'],
@@ -76,7 +89,6 @@ class Plugin extends AbstractPlugin
         // No Laravel queue jobs or cache locks: those can fall back to SQL on some installs.
         $schedule->call(function () use ($options) {
             try { (new \Plugin\SubscriptionWatchCollector\Services\OriginStore($options))->poll(); } catch (\Throwable $e) {}
-            try { (new Collector($options))->flush(); } catch (\Throwable $e) {}
             try { (new \Plugin\SubscriptionWatchCollector\Services\Control($options))->poll(); } catch (\Throwable $e) {}
         })->everyMinute()->name('subscription-watch-collector');
     }

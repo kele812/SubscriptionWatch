@@ -47,6 +47,13 @@ import {
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
 import {
+  initDevices,
+  deviceRows,
+  saveDeviceSettings,
+  clearDevices,
+  cleanDevices,
+} from "./devices.mjs";
+import {
   initSubscriptionOrigins,
   saveSubscriptionOrigin,
   deleteSubscriptionOrigin,
@@ -179,6 +186,7 @@ export function createApp({
       initDestinations(db);
       initSubscriptionOrigins(db);
       initSubscriptionImports(db);
+      initDevices(db);
       // Verify restored encrypted credentials before accepting the replacement.
       if (validate) {
         try {
@@ -275,16 +283,19 @@ export function createApp({
     failures: p.failures ?? null,
     health: !p.last_seen
       ? "尚未上报"
-      : Date.now() - p.last_seen > 180000
-        ? "上报中断（超过3分钟）"
-        : p.pending >= 100
-          ? "已连接，有积压"
-          : "正常",
+      : p.reporting_mode === "request"
+        ? "按订阅请求上报（无定时心跳）"
+        : Date.now() - p.last_seen > 180000
+          ? "上报中断（超过3分钟）"
+          : p.pending >= 100
+            ? "已连接，有积压"
+            : "正常",
   });
   const maintenance = () => {
     if (restoring) return;
     const now = Date.now();
     cleanDestinations(db, now);
+    cleanDevices(db, now);
     cleanBlacklist(db, now);
     for (const [k, v] of sessions) if (v.until < now) sessions.delete(k);
     for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
@@ -835,6 +846,35 @@ export function createApp({
           panel = db.prepare("SELECT * FROM panels WHERE id=?").get(id);
         if (!panel || panel.owner !== account.id) fail(404, "面板不存在");
         const b = method === "POST" ? await body(req) : {};
+        if (action === "devices" && method === "GET") {
+          const q = u.searchParams.get("q") || "";
+          const page = Number(u.searchParams.get("page") || 1);
+          if (
+            q.length > 254 ||
+            !Number.isSafeInteger(page) ||
+            page < 1 ||
+            page > 100000
+          )
+            fail(400, "查询参数无效");
+          return json(res, 200, deviceRows(db, id, q, page));
+        }
+        if (action === "devices/settings" && method === "POST") {
+          let settings;
+          try {
+            settings = saveDeviceSettings(db, id, b);
+          } catch (e) {
+            fail(400, e.message);
+          }
+          return json(res, 200, settings);
+        }
+        if (action === "devices/clear" && method === "POST") {
+          if (b.confirm !== true) fail(400, "请确认清除设备");
+          const uid = b.uid === undefined ? null : b.uid;
+          if (uid !== null && (!Number.isSafeInteger(uid) || uid < 1))
+            fail(400, "用户ID无效");
+          transaction(db, () => clearDevices(db, id, uid));
+          return json(res, 200, { ok: true });
+        }
         if (action === "unban" && method === "POST") {
           bans.unban(id, b.uid, b.email);
           return json(res, 200, { ok: true });
@@ -1463,7 +1503,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.23 ready");
+  console.log("Subscription Watch v4.0.24 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

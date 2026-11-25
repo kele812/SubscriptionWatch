@@ -25,6 +25,7 @@ export const defaults = {
   dailyLimit: 30,
   reviewRedirectUrl: "https://www.baidu.com/",
   uaKeywords: [
+    "pa55wall",
     "shadowrocket",
     "NetFlow",
     "clash",

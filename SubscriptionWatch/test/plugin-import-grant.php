@@ -18,18 +18,21 @@ namespace Illuminate\Support\Facades {
                 $signature='';$status=0;foreach((function_exists('http_get_last_response_headers')?http_get_last_response_headers():(get_defined_vars()['http_response_header']??[])) as $h){if(preg_match('/^HTTP\/\S+ (\d+)/',$h,$m))$status=(int)$m[1];if(stripos($h,'X-Watch-Decision-Signature:')===0)$signature=trim(substr($h,27));}
                 return new GrantResponse($raw,$status,$signature);
             }
-            $raw=json_encode(['event_id'=>Http::$last['event_id'],'allow'=>true,'redirect'=>null]);
+            $raw=isset(Http::$last['events'])
+                ? json_encode(['ok'=>true,'accepted'=>count(Http::$last['events'])])
+                : json_encode(['event_id'=>Http::$last['event_id'],'allow'=>true,'redirect'=>null,'device_policy_version'=>1]);
             return new GrantResponse($raw,200,hash_hmac('sha256',$raw,Http::$secret));
         }
     }
     class GrantResponse {
         public function __construct(private string $raw,private int $code,private string $signature){}
         public function status(){return $this->code;}public function body(){return $this->raw;}
-        public function json(){return json_decode($this->raw,true);}public function header($name){return $this->signature;}
+        public function json($key=null){$value=json_decode($this->raw,true);return $key===null?$value:($value[$key]??null);}public function header($name){return $this->signature;}
+        public function successful(){return $this->code>=200&&$this->code<300;}
     }
 }
 namespace Plugin\SubscriptionWatchCollector\Services {
-    class Buffer {public static array $events=[];public function __construct($options){}public function enqueue($event){self::$events[]=$event;}}
+    class Buffer {public static array $events=[];public function __construct($options){}public function enqueue($event){self::$events[]=$event;}public function lock($token){return false;}public function uploadFailed(){}}
 }
 namespace {
     if(!function_exists('mb_strcut')){function mb_strcut($value,$start,$length,$encoding){return substr($value,$start,$length);}}
@@ -62,8 +65,8 @@ namespace {
         check(!str_contains(json_encode(Http::$last),$grant),'Raw grant in review body');
         $response=new class {public $headers;public function __construct(){$this->headers=new class {public function get($key){return $key==='Content-Length'?'100':'text/plain';}};}public function getStatusCode(){return 200;}};
         Collector::handled((object)['request'=>$request,'response'=>$response]);
-        $event=\Plugin\SubscriptionWatchCollector\Services\Buffer::$events[array_key_last(\Plugin\SubscriptionWatchCollector\Services\Buffer::$events)];
-        check(!str_contains(json_encode($event),$grant)&&!isset($event['import_fingerprint']),'Grant persisted in queue');
+        $event=Http::$last['events'][0];
+        check(!str_contains(json_encode($event),$grant)&&!isset($event['import_fingerprint']),'Grant persisted in result report');
     }
     echo 'Collector import grant checks passed: '.$count.PHP_EOL;
 }

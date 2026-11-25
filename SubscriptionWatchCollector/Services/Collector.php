@@ -1,5 +1,6 @@
 <?php
 namespace Plugin\SubscriptionWatchCollector\Services;
+require_once __DIR__ . '/DeviceMetadata.php';
 
 
 class Collector
@@ -64,6 +65,8 @@ class Collector
             'ua' => mb_strcut((string) $request->header('User-Agent', ''), 0, 1024, 'UTF-8'),
             'flag' => is_string($request->input('flag')) ? mb_strcut($request->input('flag'), 0, 128, 'UTF-8') : '',
         ]);
+        $event = array_merge($event, DeviceMetadata::capture($user, $event['ua'],
+            (string) $request->header('X-HWID', ''), (string) $this->options['secret']));
         // Correlate requests for the same subscription without sending or storing its raw token.
         $subscriptionToken = (string) ($user->token ?? '');
         if ($subscriptionToken !== '') {
@@ -86,6 +89,8 @@ class Collector
             'ip' => $event['ip'],
             'ua' => $event['ua'],
         ];
+        foreach (['hwid', 'device_limit', 'platform', 'identity_kind'] as $field)
+            if (array_key_exists($field, $event)) $payload[$field] = $event[$field];
         // Only this request's dedicated link can claim the exemption. Never queue or log the raw grant.
         $grant = $request->input('watch_import');
         if (is_string($grant) && preg_match('/^[a-f0-9]{64}$/D', $grant))
@@ -110,9 +115,12 @@ class Collector
             throw new \UnexpectedValueException('review signature invalid');
         $answer = $response->json();
         if (!is_array($answer) || ($answer['event_id'] ?? null) !== $event['event_id']
-            || !is_bool($answer['allow'] ?? null))
+            || !is_bool($answer['allow'] ?? null) || ($answer['device_policy_version'] ?? null) !== 1)
             throw new \UnexpectedValueException('review response invalid');
         if (!$answer['allow']) {
+            foreach (['device-limit', 'device-id-required', 'device-metadata'] as $code)
+                if (in_array($code, $answer['codes'] ?? [], true))
+                    return ['allow' => false, 'redirect' => null, 'device_error' => $code];
             $target = (string) ($answer['redirect'] ?? '');
             $parts = parse_url($target);
             if (!is_array($parts) || !in_array($parts['scheme'] ?? '', ['http', 'https'], true)
@@ -141,6 +149,7 @@ class Collector
             if (!$capture) return;
             $request->attributes->remove(self::MARKER);
             $event = $capture['event'];
+            $event['completed_at'] = (int) round(microtime(true) * 1000);
             $event['status'] = $handled->response->getStatusCode();
             $event['ms'] = min(3600000, max(0, (int) round((microtime(true) - $capture['start']) * 1000)));
             // Do not materialize or serialize subscription response bodies.
@@ -151,37 +160,46 @@ class Collector
             $event['delivered'] = $event['status'] >= 200 && $event['status'] < 300
                 && $event['bytes'] !== 0
                 && !str_contains($contentType, 'text/html');
-            (new Buffer($capture['collector']->options))->enqueue($event);
+            $capture['collector']->report($event);
         } catch (\Throwable $e) {}
     }
 
-    public function flush(): void
+    // Reporting is triggered only by a subscription request. Always send the
+    // current result even when another worker owns the retry-queue lock.
+    public function report(array $event): void
     {
         if (!$this->ready()) return;
         $buffer = new Buffer($this->options);
         $token = bin2hex(random_bytes(16));
+        $locked = false;
+        $members = [];
         try {
-            if (!$buffer->lock($token)) return;
-            // At most three batches / minute; failed batches stay in Redis until their expiry.
-            for ($i = 0; $i < 3; $i++) {
-                $members = $buffer->batch();
-                $events = array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members);
-                $payload = json_encode(['schema' => 1, 'version' => '4.0.23', 'metrics' => $buffer->metrics(), 'events' => $events], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
+            try {
+                $locked = $buffer->lock($token);
+                if ($locked) $members = array_slice($buffer->batch(), 0, 99);
+            } catch (\Throwable $e) {
+                if ($locked) { try { $buffer->unlock($token); } catch (\Throwable $ignored) {} }
+                $locked = false; $members = [];
+            }
+                $events = array_merge([$event], array_map(static fn ($item) => json_decode($item, true, 512, JSON_THROW_ON_ERROR), $members));
+                $data = ['schema' => 1, 'version' => '4.0.24', 'mode' => 'request', 'events' => $events];
+                if ($locked) { try { $data['metrics'] = $buffer->metrics(); } catch (\Throwable $ignored) {} }
+                $payload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
                 $timestamp = (string) time();
                 $signature = hash_hmac('sha256', $timestamp . "\n" . $payload, (string) $this->options['secret']);
                 $response = Endpoints::post(
                     Endpoints::parse((string) $this->options['endpoint']),
                     '/api/collector/events', $payload,
-                    ['X-Watch-Timestamp' => $timestamp, 'X-Watch-Signature' => $signature, 'X-Watch-Panel' => (string) ($this->options['panel_id'] ?? '')], 3.0);
-                if (!$response->successful() || $response->json('ok') !== true || $response->json('accepted') !== count($members)) { $buffer->uploadFailed(); break; }
-                $buffer->acknowledge($members, $token);
-                if (count($members) < 100) break;
-            }
+                    ['X-Watch-Timestamp' => $timestamp, 'X-Watch-Signature' => $signature, 'X-Watch-Panel' => (string) ($this->options['panel_id'] ?? '')], 1.0);
+                if (!$response->successful() || $response->json('ok') !== true || $response->json('accepted') !== count($events))
+                    throw new \RuntimeException('Report unavailable');
+                if ($locked) $buffer->acknowledge($members, $token);
         } catch (\Throwable $e) {
             // Deliberately do not log exception messages: HTTP exceptions can include personal data or secrets.
+            $buffer->enqueue($event);
             $buffer->uploadFailed();
         } finally {
-            try { $buffer->unlock($token); } catch (\Throwable $e) {}
+            if ($locked) { try { $buffer->unlock($token); } catch (\Throwable $e) {} }
         }
     }
 }

@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { transaction } from "./model.mjs";
 import { evaluate } from "./risk.mjs";
+import { finishDeviceRequest } from "./devices.mjs";
 export const MAX_AGE = 86400000;
 export async function receiveBatch(req, res, { db, decrypt, geo }) {
   const reply = (status, b) => {
@@ -60,9 +61,12 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
     !Array.isArray(batch.events) ||
     batch.events.length > 100 ||
     !str(batch.version, 32) ||
-    !batch.metrics ||
-    !["pending", "dropped", "expired"].every((k) => n(batch.metrics[k])) ||
-    (batch.metrics.failures !== undefined && !n(batch.metrics.failures))
+    (batch.mode !== undefined && batch.mode !== "request") ||
+    (batch.metrics === undefined && batch.mode !== "request") ||
+    (batch.metrics !== undefined &&
+      (!batch.metrics ||
+        !["pending", "dropped", "expired"].every((k) => n(batch.metrics[k])) ||
+        (batch.metrics.failures !== undefined && !n(batch.metrics.failures))))
   )
     return reply(422, { error: "invalid batch" });
   for (const e of batch.events)
@@ -99,6 +103,10 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
       (e.token_fingerprint !== undefined &&
         !/^[a-f0-9]{64}$/.test(e.token_fingerprint)) ||
       (e.content_type !== undefined && !str(e.content_type, 128)) ||
+      (e.completed_at !== undefined &&
+        (!n(e.completed_at) ||
+          e.completed_at < e.ts ||
+          e.completed_at > now + 300000)) ||
       (e.delivered !== undefined && typeof e.delivered !== "boolean") ||
       (e.delivered === true &&
         (e.status < 200 || e.status >= 300 || e.bytes === 0)) ||
@@ -172,10 +180,14 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           e.token_fingerprint ?? null,
           e.content_type ?? null,
           e.delivered === undefined ? null : Number(e.delivered),
-          reviewed?.denied === 1 && e.status === 302 && e.delivered !== true
+          reviewed?.denied === 1 &&
+            [302, 403].includes(e.status) &&
+            e.delivered !== true
             ? 1
             : 0,
-          reviewed?.denied === 1 && e.status === 302 && e.delivered !== true
+          reviewed?.denied === 1 &&
+            [302, 403].includes(e.status) &&
+            e.delivered !== true
             ? reviewed.reason_labels
             : null,
           reviewed?.ip_whitelisted ?? null,
@@ -196,6 +208,7 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
             e.delivered === undefined ? null : Number(e.delivered),
           );
         if (reviewed) {
+          finishDeviceRequest(db, panel.id, e, reviewed, now);
           const enforced = Number(
             reviewed.denied === 1 &&
               [302, 403].includes(e.status) &&
@@ -226,15 +239,26 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
         }
         inserted++;
       }
-      db.prepare(
-        "UPDATE panels SET last_seen=?,pending=?,dropped=?,expired=?,version=?,failures=? WHERE id=?",
-      ).run(
-        now,
-        batch.metrics.pending,
-        batch.metrics.dropped,
-        batch.metrics.expired,
-        batch.version,
-        batch.metrics.failures ?? null,
+      if (batch.metrics)
+        db.prepare(
+          "UPDATE panels SET last_seen=?,pending=?,dropped=?,expired=?,version=?,failures=? WHERE id=?",
+        ).run(
+          now,
+          batch.metrics.pending,
+          batch.metrics.dropped,
+          batch.metrics.expired,
+          batch.version,
+          batch.metrics.failures ?? null,
+          panel.id,
+        );
+      else
+        db.prepare("UPDATE panels SET last_seen=?,version=? WHERE id=?").run(
+          now,
+          batch.version,
+          panel.id,
+        );
+      db.prepare("UPDATE panels SET reporting_mode=? WHERE id=?").run(
+        batch.mode === "request" ? "request" : "periodic",
         panel.id,
       );
       for (const [uid, fresh] of touched)
