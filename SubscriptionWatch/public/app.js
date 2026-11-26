@@ -2508,7 +2508,7 @@ $("#tgForm").onsubmit = run(async () => {
   $("#tgForm").reset();
   $("#tgCode").textContent = "";
   await refresh();
-  toast("机器人与个人ID已保存，仅管理当前面板");
+  toast("机器人与个人ID已保存；私聊发送 /menu 可选择面板");
 });
 $("#tgRemove").onclick = () => {
   const url = endpoint("telegram/remove");

@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.27" />
+    <link rel="stylesheet" href="/style.css?v=4.0.28" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.27 · 独立采集 · 风险评估</small>
+        <small>v4.0.28 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -812,7 +812,8 @@
           <form id="tgForm" class="settings-form">
             <h2>TG 机器人</h2>
             <p>
-              仅管理顶部所选面板，每个面板使用不同的机器人。仅支持私聊，切换面板可分别配置。
+              此处配置顶部所选面板的通知机器人。仅支持绑定账号私聊；发送 /menu
+              可选择本人名下的面板，查看风险或确认重置选定面板全部用户的订阅次数。通知归属不随菜单切换。
             </p>
             <label
               >Bot Token<input
@@ -1020,6 +1021,6 @@
       </div>
     </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.27"></script>
+    <script src="/app.js?v=4.0.28"></script>
   </body>
 </html>
