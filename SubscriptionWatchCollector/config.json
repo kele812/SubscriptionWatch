@@ -1,7 +1,7 @@
 {
   "name": "订阅观察采集器",
   "code": "subscription_watch_collector",
-  "version": "4.0.28",
+  "version": "4.0.29",
   "description": "订阅请求触发审核与结果上报，设备和风险判断在风控机，不定时上报订阅记录。",
   "author": "Subscription Watch",
   "type": "feature",

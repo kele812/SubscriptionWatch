@@ -117,3 +117,17 @@ export function resetClientDailyCount(db, panel, uid, email, now = Date.now()) {
     return { ok: true };
   });
 }
+
+export function resetPanelDailyCounts(db, panel, now = Date.now()) {
+  return transaction(db, () => {
+    db.prepare(
+      `INSERT INTO risk_history(panel,uid,email,ts,action,reasons)
+      SELECT panel,uid,email,?,'网页清零面板全部用户24小时订阅次数','[]'
+      FROM subjects WHERE panel=?`,
+    ).run(now, panel);
+    const count = db
+      .prepare("UPDATE subjects SET daily_reset_at=? WHERE panel=?")
+      .run(now, panel).changes;
+    return { ok: true, count };
+  });
+}

@@ -1897,6 +1897,17 @@ $("#blacklistBulkRemove").onclick = () => {
     },
   );
 };
+$("#historyResetAll").onclick = () => {
+  const id = panelId,
+    name = panel()?.name;
+  if (!id || !name) return;
+  ask(
+    `清零面板「${name}」所有用户次数`,
+    "将清零此面板全部已采集用户的24小时订阅计次，包含白名单用户，不受当前搜索、分页或勾选范围限制。其他面板不受影响；历史记录、设备、风险标记和账号封禁保留。后续新请求重新累计。",
+    [],
+    () => api(`/api/panels/${id}/client-status/reset-all`, { confirm: true }),
+  );
+};
 if ($("#historySelectPage"))
   $("#historySelectPage").onclick = () =>
     toggleBatchPage("history", "#historyTable");

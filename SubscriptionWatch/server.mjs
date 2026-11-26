@@ -84,6 +84,7 @@ import {
   clientStatusByUsers,
   clientStatusRows,
   resetClientDailyCount,
+  resetPanelDailyCounts,
 } from "./client-status.mjs";
 import { refreshAllWhitelists, refreshWhitelist } from "./whitelist.mjs";
 import { describeReviewCodes } from "./review-labels.mjs";
@@ -1161,6 +1162,15 @@ export function createApp({
           return json(res, 200, subscriptionOriginOptions(db, id));
         if (action === "subscription-origins/options" && method === "POST")
           return json(res, 200, saveSubscriptionOriginOptions(db, id, b));
+        if (action === "client-status/reset-all" && method === "POST") {
+          if (b.confirm !== true)
+            fail(400, "请确认清零当前面板所有用户的24小时次数");
+          const result = resetPanelDailyCounts(db, id);
+          return json(res, 200, {
+            ...result,
+            notice: `已清零面板「${panel.name}」${result.count} 位已采集用户的24小时订阅次数`,
+          });
+        }
         if (action === "client-status/reset" && method === "POST") {
           if (b.confirm !== true) fail(400, "请确认重置该用户的24小时次数");
           if (
@@ -1581,7 +1591,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.28 ready");
+  console.log("Subscription Watch v4.0.29 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }
