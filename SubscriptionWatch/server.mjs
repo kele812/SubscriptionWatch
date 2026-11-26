@@ -47,6 +47,13 @@ import {
 import { receiveBatch, MAX_AGE } from "./ingest.mjs";
 import { receiveReview } from "./review.mjs";
 import {
+  initEventWindows,
+  syncEventWindows,
+  windowVisitsSql,
+} from "./event-windows.mjs";
+import { initRequestCounts, cleanRequestCounts } from "./request-counts.mjs";
+import { initPanelOrder, savePanelOrder } from "./panel-order.mjs";
+import {
   initDevices,
   deviceRows,
   saveDeviceSettings,
@@ -187,6 +194,9 @@ export function createApp({
       initSubscriptionOrigins(db);
       initSubscriptionImports(db);
       initDevices(db);
+      initRequestCounts(db, geo);
+      initEventWindows(db);
+      initPanelOrder(db);
       // Verify restored encrypted credentials before accepting the replacement.
       if (validate) {
         try {
@@ -296,6 +306,7 @@ export function createApp({
     const now = Date.now();
     cleanDestinations(db, now);
     cleanDevices(db, now);
+    cleanRequestCounts(db, now);
     cleanBlacklist(db, now);
     for (const [k, v] of sessions) if (v.until < now) sessions.delete(k);
     for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
@@ -808,11 +819,15 @@ export function createApp({
         return json(res, 200, {
           rows: db
             .prepare(
-              `SELECT p.*,a.username owner_name FROM panels p JOIN accounts a ON a.id=p.owner ${all ? "" : "WHERE p.owner=?"} ORDER BY p.id`,
+              `SELECT p.*,a.username owner_name FROM panels p JOIN accounts a ON a.id=p.owner ${all ? "" : "WHERE p.owner=?"} ORDER BY COALESCE(p.sort_order,p.id),p.id`,
             )
             .all(...(all ? [] : [account.id]))
             .map(visible),
         });
+      }
+      if (route === "/api/panels/order" && method === "POST") {
+        const b = await body(req);
+        return json(res, 200, savePanelOrder(db, account.id, b.ids));
       }
       if (route === "/api/panels" && method === "POST") {
         const b = await body(req);
@@ -1163,7 +1178,10 @@ export function createApp({
             fail(400, "用户ID与已采集邮箱不匹配，请刷新后重试");
           return json(res, 200, resetClientDailyCount(db, id, b.uid, b.email));
         }
-        if (["events", "export"].includes(action) && method === "GET") {
+        if (
+          ["events", "event-windows", "export"].includes(action) &&
+          method === "GET"
+        ) {
           const conditions = ["panel=?"],
             params = [id];
           for (const f of ["uid", "ip"])
@@ -1202,9 +1220,20 @@ export function createApp({
           if (resultConditions[resultFilter])
             conditions.push(resultConditions[resultFilter]);
           const where = conditions.join(" AND ");
+          const grouped = action === "event-windows";
+          if (grouped)
+            syncEventWindows(
+              db,
+              id,
+              JSON.parse(panel.rules).historyMergeMinutes ??
+                defaults.historyMergeMinutes,
+            );
+          const visitSource = grouped ? windowVisitsSql : "visits";
           const rows = db
             .prepare(
-              "SELECT * FROM visits WHERE " +
+              "SELECT * FROM " +
+                visitSource +
+                " WHERE " +
                 where +
                 " ORDER BY ts DESC,id DESC LIMIT ? OFFSET ?",
             )
@@ -1264,7 +1293,9 @@ export function createApp({
             })),
             page,
             total: db
-              .prepare("SELECT count(*) n FROM visits WHERE " + where)
+              .prepare(
+                "SELECT count(*) n FROM " + visitSource + " WHERE " + where,
+              )
               .get(...params).n,
           });
         }
@@ -1303,7 +1334,25 @@ export function createApp({
             actions:
               "SELECT id,uid,kind,origin,status,message,created,updated,email FROM ban_actions WHERE panel=? AND uid=? AND id<? ORDER BY id DESC LIMIT 21",
           };
-          const found = db.prepare(queries[kind]).all(id, uid, before);
+          const range = ["windowFrom", "windowTo"].map((key) =>
+            u.searchParams.get(key),
+          );
+          let found;
+          if (kind === "visits" && range.some((x) => x !== null)) {
+            const [start, end] = range.map(Number);
+            if (
+              range.some((x) => x === null) ||
+              !Number.isSafeInteger(start) ||
+              !Number.isSafeInteger(end) ||
+              start > end
+            )
+              fail(400, "记录时间范围错误");
+            found = db
+              .prepare(
+                "SELECT * FROM visits WHERE panel=? AND uid=? AND id<? AND ts>=? AND ts<=? ORDER BY id DESC LIMIT 21",
+              )
+              .all(id, uid, before, start, end);
+          } else found = db.prepare(queries[kind]).all(id, uid, before);
           const hasMore = found.length > 20;
           const rows = found
             .slice(0, 20)
@@ -1435,6 +1484,35 @@ export function createApp({
           );
           await confirm();
           const count = transaction(db, () => {
+            if (b.windows === true) {
+              syncEventWindows(
+                db,
+                id,
+                JSON.parse(panel.rules).historyMergeMinutes ??
+                  defaults.historyMergeMinutes,
+              );
+              let removed = 0;
+              for (const latest of ids) {
+                const w = db
+                  .prepare(
+                    "SELECT * FROM event_windows WHERE panel=? AND latest_id=?",
+                  )
+                  .get(id, latest);
+                if (!w) fail(400, "部分合并记录已更新，请刷新列表");
+                if (w.amount === 1) {
+                  removed += db
+                    .prepare("DELETE FROM visits WHERE panel=? AND id=?")
+                    .run(id, latest).changes;
+                  continue;
+                }
+                removed += db
+                  .prepare(
+                    "DELETE FROM visits WHERE panel=? AND uid=? AND ts>=? AND ts<=?",
+                  )
+                  .run(id, w.uid, w.started, w.ended).changes;
+              }
+              return removed;
+            }
             const changed = db
               .prepare(
                 `DELETE FROM visits WHERE panel=? AND id IN (${ids.map(() => "?").join(",")})`,
@@ -1503,7 +1581,7 @@ if (
 ) {
   const app = createApp();
   app.admin.listen(Number(process.env.ADMIN_PORT || 8080), "0.0.0.0");
-  console.log("Subscription Watch v4.0.26 ready");
+  console.log("Subscription Watch v4.0.27 ready");
   for (const signal of ["SIGINT", "SIGTERM"])
     process.on(signal, () => app.close().then(() => process.exit(0)));
 }

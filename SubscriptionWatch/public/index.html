@@ -4,13 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>订阅观察 · 风控工作台</title>
-    <link rel="stylesheet" href="/style.css?v=4.0.26" />
+    <link rel="stylesheet" href="/style.css?v=4.0.27" />
   </head>
   <body>
     <div id="app" hidden>
       <aside>
         <div class="brand">订阅观察</div>
-        <small>v4.0.26 · 独立采集 · 风险评估</small>
+        <small>v4.0.27 · 独立采集 · 风险评估</small>
         <nav>
           <span class="nav-heading">调查</span>
           <button data-tab="history" class="active">获取订阅记录</button
@@ -43,6 +43,7 @@
           </div>
           <div class="toolbar">
             <select id="panelSelect" aria-label="当前面板"></select
+            ><button id="panelOrder">调整顺序</button
             ><button id="addPanel">添加面板</button
             ><button id="refresh">刷新</button>
           </div>
@@ -710,6 +711,30 @@
             <fieldset class="rule-card">
               <legend>06 · 每日订阅请求上限</legend>
               <label
+                >记录合并时长（分钟）<input
+                  name="historyMergeMinutes"
+                  type="number"
+                  min="0"
+                  max="10080"
+                  value="240"
+                  required
+              /></label>
+              <p>
+                默认240分钟（4小时），可手动修改，0表示每次请求单独显示。同一客户从首次请求起，在固定时长内合为一行，展示最近一次的来源、UA和结果；超过时长新增一行。查看明细保留每次原始请求。本项与每日次数合并分开设置。
+              </p>
+              <label
+                >同IP/CF合并计次窗口（分钟）<input
+                  name="requestDedupeMinutes"
+                  type="number"
+                  min="0"
+                  max="1440"
+                  value="240"
+                  required
+              /></label>
+              <p>
+                默认240分钟（4小时），0关闭合并。每个面板、每位客户单独计算：普通IP各自合并，全部Cloudflare来源合并为一组。从首次计入起计算固定窗口，重复不延长。只影响24小时次数，其他风控仍检查。
+              </p>
+              <label
                 >同一用户最近滚动24小时最多请求次数
                 <input
                   name="dailyLimit"
@@ -720,7 +745,7 @@
                 />
               </label>
               <p>
-                默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31次开始跳转。每日上限不会单独标记可疑用户。手动取消可疑标记后，此用户从零重新计数，旧获取订阅记录不删除。
+                默认30次。成功下发和已拦截请求均计入；达到上限的请求仍按其他规则处理，第31个新增计次开始跳转，已获准的窗口内重复请求不另扣额度。每日上限不会单独标记可疑用户。手动取消可疑标记后，此用户从零重新计数，旧获取订阅记录不删除。
               </p>
             </fieldset>
             <fieldset class="rule-card">
@@ -985,7 +1010,16 @@
         </div>
       </form>
     </dialog>
+    <dialog id="panelOrderDialog" aria-labelledby="panelOrderTitle">
+      <h2 id="panelOrderTitle">调整面板顺序</h2>
+      <p>上移或下移后保存，下拉列表会按这个顺序显示。</p>
+      <div id="panelOrderRows"></div>
+      <div class="actions">
+        <button type="button" id="panelOrderSave">保存顺序</button
+        ><button type="button" id="panelOrderClose">取消</button>
+      </div>
+    </dialog>
     <div id="toast" role="status" hidden></div>
-    <script src="/app.js?v=4.0.26"></script>
+    <script src="/app.js?v=4.0.27"></script>
   </body>
 </html>

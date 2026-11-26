@@ -28,6 +28,8 @@ export function clientStatusByUsers(db, panel, uids, now = Date.now()) {
           suspicious: !!s.suspicious,
           devices: devices.get(s.uid),
           dailyCount: counts.total,
+          requestDedupeMinutes: { ...defaults, ...JSON.parse(panel.rules) }
+            .requestDedupeMinutes,
           ipWhitelistCount: counts.ipWhitelist,
           unclassifiedCount: counts.unclassified,
           dailyLimit,
@@ -82,6 +84,8 @@ export function clientStatusRows(
         white: !!s.white,
         suspicious: !!s.suspicious,
         dailyCount: counts.total,
+        requestDedupeMinutes: { ...defaults, ...JSON.parse(panel.rules) }
+          .requestDedupeMinutes,
         ipWhitelistCount: counts.ipWhitelist,
         unclassifiedCount: counts.unclassified,
         dailyLimitReached: counts.total >= limitCount,

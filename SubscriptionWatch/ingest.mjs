@@ -131,7 +131,7 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
         "INSERT INTO subjects(panel,uid,email,verified) VALUES(?,?,?,1) ON CONFLICT(panel,uid) DO UPDATE SET white=CASE WHEN subjects.email=excluded.email THEN subjects.white ELSE 0 END,email=excluded.email,verified=1",
       );
       const visit = db.prepare(
-        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,proxy_ip,proxy_name,proxy_verified,status,ms,bytes,event_id,token_fingerprint,content_type,delivered,review_blocked,review_reasons,ip_whitelisted,failure_code,import_whitelisted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO visits(panel,ts,uid,email,ip,ua,peer_ip,ip_source,proxy_ip,proxy_name,proxy_verified,status,ms,bytes,event_id,token_fingerprint,content_type,delivered,review_blocked,review_reasons,ip_whitelisted,failure_code,import_whitelisted,count_key,count_bucket,count_started) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       );
       const sample = db.prepare(
         "INSERT INTO samples(panel,uid,ts,ip,ua,proxy_ip,proxy_name,proxy_verified,status,delivered) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -152,15 +152,17 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
         subject.run(panel.id, e.user_id, e.email);
         const reviewed = db
           .prepare(
-            "SELECT denied,reason_labels,ip_whitelisted,import_whitelisted,uid,email,ip,ua FROM review_decisions WHERE panel=? AND event_id=?",
+            "SELECT denied,reason_labels,ip_whitelisted,import_whitelisted,uid,email,ip,ua,count_key,count_bucket,count_started FROM review_decisions WHERE panel=? AND event_id=?",
           )
           .get(panel.id, e.event_id);
-        const importWhitelisted =
-          reviewed?.import_whitelisted === 1 &&
+        const sameRequest =
+          reviewed &&
           reviewed.uid === e.user_id &&
           reviewed.email === e.email &&
           reviewed.ip === e.ip &&
           reviewed.ua === e.ua;
+        const importWhitelisted =
+          sameRequest && reviewed.import_whitelisted === 1;
         visit.run(
           panel.id,
           e.ts,
@@ -193,6 +195,9 @@ export async function receiveBatch(req, res, { db, decrypt, geo }) {
           reviewed?.ip_whitelisted ?? null,
           e.failure_code ?? null,
           reviewed ? Number(importWhitelisted) : null,
+          sameRequest ? reviewed.count_key : null,
+          sameRequest ? reviewed.count_bucket : null,
+          sameRequest ? reviewed.count_started : null,
         );
         if (!importWhitelisted)
           sample.run(

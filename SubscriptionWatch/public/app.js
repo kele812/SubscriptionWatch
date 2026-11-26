@@ -21,6 +21,7 @@ let me,
   refreshController = null;
 let userHistoryState = null;
 let deviceSettingsPanel = 0;
+let panelOrderDraft = null;
 let subscriptionOriginOptionsState = { panel: 0, origins: [], revision: null };
 let subscriptionOriginLookupEpoch = 0,
   subscriptionOriginLookupRequest = 0;
@@ -192,7 +193,9 @@ function currentStatusLabels(user) {
   if (user.suspicious)
     states.push("可疑用户" + (user.white ? "（已豁免）" : ""));
   if (user.dailyLimitReached)
-    states.push(`已达每日上限${user.white ? "（已豁免）" : "（下次拦截）"}`);
+    states.push(
+      `已达每日上限${user.white ? "（已豁免）" : user.requestDedupeMinutes ? "（新增计次将拦截）" : "（下次拦截）"}`,
+    );
   if (!states.length) states.push("正常");
   return states;
 }
@@ -204,7 +207,7 @@ function currentCountText(user) {
   const old = user.unclassifiedCount
     ? `；另有 ${user.unclassifiedCount} 次旧记录未分类`
     : "";
-  return `24小时已计入 ${user.dailyCount}/${user.dailyLimit} 次 · 其中 IP/域名白名单 ${user.ipWhitelistCount ?? 0} 次${old} · 下次第 ${user.nextRequestNumber} 次`;
+  return `24小时已计入 ${user.dailyCount}/${user.dailyLimit} 次 · 其中 IP/域名白名单 ${user.ipWhitelistCount ?? 0} 次${old} · ${user.requestDedupeMinutes ? "下个新增计次第" : "下次第"} ${user.nextRequestNumber} 次`;
 }
 function currentStatusCell(user) {
   const status = document.createElement("span");
@@ -227,6 +230,13 @@ function currentStatusCell(user) {
     status.append(count);
   }
   return status;
+}
+function displayClientUa(value) {
+  const raw = String(value || "");
+  const match = raw.match(
+    /^(?:Clash\.Meta|Mihomo)\/[^\s]+\s+(Pa55wall\/\d[^\r\n]*)$/i,
+  );
+  return match ? match[1] : raw;
 }
 function currentDeviceText(user) {
   if (!user?.devices || !user.verified) return "未记录";
@@ -463,8 +473,12 @@ async function loadUserHistory(kind) {
   $(more).disabled = true;
   try {
     const cursor = state.next ? `&before=${state.next}` : "";
+    const range =
+      kind === "visits" && current.window
+        ? `&windowFrom=${current.window.windowStarted}&windowTo=${current.window.windowEnded}`
+        : "";
     const data = await api(
-      `/api/panels/${current.panelId}/user-history?uid=${current.uid}&kind=${kind}${cursor}`,
+      `/api/panels/${current.panelId}/user-history?uid=${current.uid}&kind=${kind}${cursor}${range}`,
     );
     if (userHistoryState !== current) return;
     state.rows.push(...data.rows);
@@ -481,8 +495,8 @@ async function loadUserHistory(kind) {
     if (userHistoryState === current) $(more).disabled = false;
   }
 }
-function openUserHistory(id, uid, email) {
-  userHistoryState = { panelId: id, uid };
+function openUserHistory(id, uid, email, window = null) {
+  userHistoryState = { panelId: id, uid, window };
   for (const kind of Object.keys(userHistoryKinds)) {
     userHistoryState[kind] = {
       rows: [],
@@ -493,7 +507,8 @@ function openUserHistory(id, uid, email) {
     $(userHistoryKinds[kind].target).textContent = "加载中…";
     $(userHistoryKinds[kind].more).hidden = true;
   }
-  $("#userHistoryTitle").textContent = `用户历史记录 · ${uid} / ${email}`;
+  $("#userHistoryTitle").textContent =
+    `用户历史记录 · ${uid} / ${email}${window ? ` · ${format(window.windowStarted)} 至 ${format(window.windowEnded)} · ${window.windowRequests}次请求` : ""}`;
   $("#userHistoryDialog").showModal();
   for (const kind of Object.keys(userHistoryKinds)) loadUserHistory(kind);
 }
@@ -584,6 +599,7 @@ function table(target, head, rows) {
   $(target).replaceChildren(wrap);
 }
 function updateBatch(kind) {
+  if (kind === "history" && !$("#historySelectedCount")) return;
   const labels = { history: "条", risk: "人", blacklist: "个 IP" };
   const selected = batchSelected[kind],
     visible = batchVisible[kind],
@@ -831,7 +847,7 @@ function detail(data) {
     if (data.当前状态) line(card, `当前状态：${data.当前状态}`);
     if (data.当前设备数量) line(card, `当前设备数量：${data.当前设备数量}`);
     line(card, `订阅内容：${data.订阅内容}`);
-    line(card, `UA：${data.原始UA || "（空）"}`);
+    line(card, `原始 UA：${data.原始UA || "（空）"}`);
     const extra = document.createElement("details");
     extra.className = "evidence-more";
     const toggle = document.createElement("summary");
@@ -1066,6 +1082,61 @@ function showTab(name) {
 }
 for (const b of document.querySelectorAll("[data-tab]"))
   b.onclick = () => showTab(b.dataset.tab);
+function renderPanelOrder() {
+  if (!panelOrderDraft) return;
+  table(
+    "#panelOrderRows",
+    ["面板", "调整"],
+    panelOrderDraft.map((p, i) => [
+      p.name,
+      actions(
+        ...[-1, 1].map((step) => {
+          const move = button(step < 0 ? "上移" : "下移", () => {
+            const target = i + step;
+            if (
+              !panelOrderDraft ||
+              target < 0 ||
+              target >= panelOrderDraft.length
+            )
+              return;
+            [panelOrderDraft[i], panelOrderDraft[target]] = [
+              panelOrderDraft[target],
+              panelOrderDraft[i],
+            ];
+            renderPanelOrder();
+          });
+          move.disabled = i + step < 0 || i + step >= panelOrderDraft.length;
+          move.setAttribute(
+            "aria-label",
+            `${step < 0 ? "上移" : "下移"} ${p.name}`,
+          );
+          return move;
+        }),
+      ),
+    ]),
+  );
+}
+$("#panelOrder").onclick = () => {
+  panelOrderDraft = panels.map((p) => ({ id: p.id, name: p.name }));
+  renderPanelOrder();
+  $("#panelOrderDialog").showModal();
+};
+$("#panelOrderClose").onclick = () => {
+  $("#panelOrderDialog").close();
+  panelOrderDraft = null;
+};
+$("#panelOrderDialog").oncancel = () => {
+  panelOrderDraft = null;
+};
+$("#panelOrderSave").onclick = run(async () => {
+  if (!panelOrderDraft) return;
+  const ids = panelOrderDraft.map((p) => p.id);
+  await api("/api/panels/order", { ids });
+  await loadPanels();
+  $("#panelOrderDialog").close();
+  panelOrderDraft = null;
+  toast("面板顺序已保存");
+});
 function query() {
   const q = new URLSearchParams({ page });
   if (tab === "history")
@@ -1448,7 +1519,7 @@ async function refresh() {
       $("#pageInfo").textContent = `共 ${d.total} 条 · 第 ${page} 页`;
     }
     if (panelId && tab === "history") {
-      const d = await read(endpoint("events") + "?" + query());
+      const d = await read(endpoint("event-windows") + "?" + query());
       rows = d.rows;
       batchRows(
         "history",
@@ -1462,7 +1533,7 @@ async function refresh() {
           "时间",
           "用户ID / 邮箱",
           "来源IP / 归属地",
-          "原始UA",
+          "客户端UA",
           "结果",
           "当前状态",
           "当前设备数量",
@@ -1470,15 +1541,18 @@ async function refresh() {
         ],
         rows.map((r) => [
           batchCheck("history", r.id, `选择获取订阅记录 ${r.id}`),
-          format(r.ts),
+          `${format(r.ts)}\n本组合并 ${r.windowRequests} 次`,
           r.uid + " / " + r.email,
           r.ip + "\n" + geoText(r.geo),
-          r.ua || "（空）",
+          displayClientUa(r.ua) || "（空）",
           visitResultCell(r),
           currentStatusCell(r.currentUser),
           currentDeviceCell(r),
           actions(
-            button("查看", () => detail(sourceTraceDetail(r))),
+            button("查看明细", () =>
+              openUserHistory(panelId, r.uid, r.email, r),
+            ),
+            button("最近一次详情", () => detail(sourceTraceDetail(r))),
             ...(r.currentUser?.verified
               ? [
                   button("重置次数", () =>
@@ -1823,21 +1897,27 @@ $("#blacklistBulkRemove").onclick = () => {
     },
   );
 };
-$("#historySelectPage").onclick = () =>
-  toggleBatchPage("history", "#historyTable");
-$("#historyBulkDelete").onclick = () => {
-  const ids = [...batchSelected.history];
-  if (!ids.length) return;
-  ask(
-    `删除所选 ${ids.length} 条获取订阅记录`,
-    "只删除当前面板的所选获取订阅记录，保留可疑用户及评估历史。",
-    [pwd],
-    async (b) => {
-      await api(endpoint("history/bulk-delete"), { ...b, ids });
-      batchSelected.history.clear();
-    },
-  );
-};
+if ($("#historySelectPage"))
+  $("#historySelectPage").onclick = () =>
+    toggleBatchPage("history", "#historyTable");
+if ($("#historyBulkDelete"))
+  $("#historyBulkDelete").onclick = () => {
+    const ids = [...batchSelected.history];
+    if (!ids.length) return;
+    ask(
+      `删除所选 ${ids.length} 组合并记录`,
+      "删除所选合并时段内的原始获取记录，保留可疑用户及评估历史。",
+      [pwd],
+      async (b) => {
+        await api(endpoint("history/bulk-delete"), {
+          ...b,
+          ids,
+          windows: true,
+        });
+        batchSelected.history.clear();
+      },
+    );
+  };
 $("#riskSelectPage").onclick = () => toggleBatchPage("risk", "#riskTable");
 $("#riskBulkResolve").onclick = () => {
   const uids = [...batchSelected.risk];
@@ -1936,9 +2016,10 @@ $("#next").onclick = run(async () => {
   page++;
   await refresh();
 });
-$("#export").onclick = () => {
-  if (panelId) location.href = endpoint("export") + "?" + query();
-};
+if ($("#export"))
+  $("#export").onclick = () => {
+    if (panelId) location.href = endpoint("export") + "?" + query();
+  };
 $("#addCommonUa").onclick = run(() => {
   const field = $("#rulesForm").elements.uaKeywords;
   const current = field.value
@@ -2009,6 +2090,8 @@ function readRuleForm() {
         rules[k] = Number(f.elements[k].value);
       }
   rules.dailyLimit = Number(f.elements.dailyLimit.value);
+  rules.requestDedupeMinutes = Number(f.elements.requestDedupeMinutes.value);
+  rules.historyMergeMinutes = Number(f.elements.historyMergeMinutes.value);
   rules.reviewRedirectUrl = f.elements.reviewRedirectUrl.value.trim();
   return { ...rules, retentionDays: panel().rules.retentionDays };
 }

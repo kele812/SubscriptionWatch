@@ -23,6 +23,8 @@ export const defaults = {
   cloudLongMinutes: 720,
   cloudLongLimit: 10,
   dailyLimit: 30,
+  requestDedupeMinutes: 240,
+  historyMergeMinutes: 240,
   reviewRedirectUrl: "https://www.baidu.com/",
   uaKeywords: [
     "pa55wall",
@@ -570,6 +572,14 @@ export function validateRules(b) {
   )
     throw Error("24小时请求上限须为1～10000次");
   r.dailyLimit = b.dailyLimit;
+  const dedupe = b.requestDedupeMinutes ?? defaults.requestDedupeMinutes;
+  if (!Number.isInteger(dedupe) || dedupe < 0 || dedupe > 1440)
+    throw Error("合并计次时间须为0～1440个整分钟，0表示关闭");
+  r.requestDedupeMinutes = dedupe;
+  const history = b.historyMergeMinutes ?? defaults.historyMergeMinutes;
+  if (!Number.isInteger(history) || history < 0 || history > 10080)
+    throw Error("记录合并时长须为0～10080个整分钟，0表示逐次显示");
+  r.historyMergeMinutes = history;
   if (
     typeof b.reviewRedirectUrl !== "string" ||
     b.reviewRedirectUrl.length > 2048

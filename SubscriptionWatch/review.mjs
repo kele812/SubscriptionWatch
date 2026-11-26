@@ -5,6 +5,8 @@ import { describeReviewCodes } from "./review-labels.mjs";
 import { isWhitelisted } from "./whitelist.mjs";
 import { isSubscriptionImportWhitelisted } from "./subscription-imports.mjs";
 import { reserveDevice } from "./devices.mjs";
+import { prepareRequestCount, requestCount } from "./request-counts.mjs";
+export { requestCounts, requestCount } from "./request-counts.mjs";
 import {
   activeBlacklistedIP,
   blacklistSettings,
@@ -101,7 +103,7 @@ function reason(
     })),
     evidenceLimited: rows.length > 100,
     evidenceCount: count,
-    ruleVersion: "4.0.26",
+    ruleVersion: "4.0.27",
   };
 }
 
@@ -164,30 +166,7 @@ function cloudRows(db, panel, event, subject, geo, now, minutes) {
   }));
 }
 
-export function requestCounts(db, panelId, uid, now, resetAt = 0) {
-  const since = Math.max(now - DAY, resetAt);
-  const reviewed = db
-    .prepare(
-      "SELECT COUNT(*) total, COALESCE(SUM(ip_whitelisted=1),0) ipWhitelist, COALESCE(SUM(ip_whitelisted IS NULL),0) unclassified FROM review_decisions WHERE panel=? AND uid=? AND ts>? AND ts<=? AND (delivered=1 OR enforced=1 OR (delivered IS NULL AND enforced IS NULL))",
-    )
-    .get(panelId, uid, since, now);
-  const legacy = db
-    .prepare(
-      "SELECT COUNT(*) total FROM visits v WHERE v.panel=? AND v.uid=? AND v.ts>? AND v.ts<=? AND (v.delivered=1 OR v.status IN (302,403)) AND (v.event_id IS NULL OR NOT EXISTS (SELECT 1 FROM review_decisions d WHERE d.panel=v.panel AND d.event_id=v.event_id))",
-    )
-    .get(panelId, uid, since, now).total;
-  return {
-    total: reviewed.total + legacy,
-    ipWhitelist: reviewed.ipWhitelist,
-    unclassified: reviewed.unclassified + legacy,
-  };
-}
-
-export function requestCount(db, panelId, uid, now, resetAt = 0) {
-  return requestCounts(db, panelId, uid, now, resetAt).total;
-}
-
-function decide(db, panel, event, geo, now) {
+function decide(db, panel, event, geo, now, countPlan) {
   const rules = { ...defaults, ...JSON.parse(panel.rules) };
   const subject = db
     .prepare(
@@ -211,9 +190,17 @@ function decide(db, panel, event, geo, now) {
       importWhitelisted,
     };
   const codes = [];
+  const used = requestCount(
+    db,
+    panel.id,
+    event.user_id,
+    now,
+    subject?.daily_reset_at,
+  );
   if (
-    requestCount(db, panel.id, event.user_id, now, subject?.daily_reset_at) >=
-    rules.dailyLimit
+    countPlan.reuse
+      ? !countPlan.authorized && used > rules.dailyLimit
+      : used >= rules.dailyLimit
   )
     codes.push("daily-limit");
   const place = geo?.lookup(event.ip) || {};
@@ -441,7 +428,11 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
     db.prepare(
       "INSERT INTO subjects(panel,uid,email,verified) VALUES(?,?,?,1) ON CONFLICT(panel,uid) DO UPDATE SET white=CASE WHEN subjects.email=excluded.email THEN subjects.white ELSE 0 END,email=excluded.email,verified=1",
     ).run(panel.id, event.user_id, event.email);
-    const result = decide(db, panel, event, geo, now);
+    const reset = db
+      .prepare("SELECT daily_reset_at FROM subjects WHERE panel=? AND uid=?")
+      .get(panel.id, event.user_id).daily_reset_at;
+    const counting = prepareRequestCount(db, panel.id, event, now, reset);
+    const result = decide(db, panel, event, geo, now, counting);
     const device = reserveDevice(
       db,
       panel.id,
@@ -459,7 +450,7 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
         : label,
     );
     db.prepare(
-      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels,ip_whitelisted,import_whitelisted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO review_decisions(panel,event_id,uid,email,ip,ua,ts,denied,codes,reason_labels,ip_whitelisted,import_whitelisted,count_key,count_bucket,count_started) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ).run(
       panel.id,
       event.event_id,
@@ -473,6 +464,9 @@ export async function receiveReview(req, res, { db, decrypt, geo }) {
       JSON.stringify(reasonLabels),
       Number(!!result.ipWhitelisted),
       Number(!!result.importWhitelisted),
+      counting.key,
+      counting.bucket,
+      counting.started,
     );
     return {
       allow: result.codes.length === 0,
